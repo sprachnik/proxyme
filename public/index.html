@@ -12,9 +12,22 @@
   <div id="hud">
     <strong>proxme</strong>
     <button id="locate" type="button" title="Use my location">📍</button>
+    <select id="radius" title="Search radius">
+      <option value="5">5 km</option>
+      <option value="10">10 km</option>
+      <option value="20" selected>20 km</option>
+      <option value="50">50 km</option>
+    </select>
     <span id="status">locating…</span>
-    <span class="legend"><i class="air"></i>air <i class="sea"></i>sea</span>
+    <span class="legend">
+      <i style="background:#4ea8ff"></i>air
+      <i style="background:#ffb347"></i>light
+      <i style="background:#ff5470"></i>heli
+      <i style="background:#9d7bff"></i>glider
+      <i style="background:#2fd6c2"></i>sea
+    </span>
   </div>
+  <div id="panel"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>

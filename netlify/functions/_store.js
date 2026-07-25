@@ -1,12 +1,20 @@
 // Storage seam. MVP = Netlify Blobs. Supabase pass = replace bodies, keep signatures.
 import { getStore } from '@netlify/blobs';
 
-const cache = getStore('proxme-cache');
+// Lazy + fault-tolerant: outside the Netlify runtime (local node, tests)
+// getStore throws — degrade to no caching instead of crashing on import.
+let cache;
+function store() {
+  if (cache === undefined) {
+    try { cache = getStore('proxme-cache'); } catch { cache = null; }
+  }
+  return cache;
+}
 
 /** Short-TTL response cache (protects API quotas). */
 export async function getCache(key) {
   try {
-    const v = await cache.get(key, { type: 'json' });
+    const v = await store()?.get(key, { type: 'json' });
     return v && v.exp > Date.now() ? v.data : null;
   } catch {
     return null; // cache miss/unavailable must never break the request path
@@ -15,7 +23,7 @@ export async function getCache(key) {
 
 export async function setCache(key, data, ttlMs = 8000) {
   try {
-    await cache.setJSON(key, { data, exp: Date.now() + ttlMs });
+    await store()?.setJSON(key, { data, exp: Date.now() + ttlMs });
   } catch { /* best-effort */ }
 }
 
