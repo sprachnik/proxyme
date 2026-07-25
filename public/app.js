@@ -22,17 +22,44 @@ const GLIDERY = new Set(['glider', 'paraglider', 'hangglider', 'towplane', 'para
 
 function color(e) { return COLORS[e.sub] || (e.kind === 'sea' ? '#2fd6c2' : '#4ea8ff'); }
 
-function icon(e) {
-  const c = color(e);
-  let shape;
-  if (e.kind === 'sea') {
-    shape = `<div class="shape boat" style="background:${c}"></div>`;
-  } else if (e.sub === 'balloon' || e.sub === 'parachute' || e.sub === 'drone' || e.sub === 'airship') {
-    shape = `<div class="shape dot" style="background:${c}"></div>`;
-  } else {
-    shape = `<div class="shape blip" style="border-bottom-color:${c};transform:rotate(${e.heading ?? 0}deg)"></div>`;
+// Top-view silhouettes on a 24×24 grid, nose pointing north; rotated by heading.
+const SHAPES = {
+  plane: 'M12 2 L13.6 9 L22 13.2 L22 15.2 L13.4 12.6 L13 17.6 L16 20 L16 21.6 L12 20.6 L8 21.6 L8 20 L11 17.6 L10.6 12.6 L2 15.2 L2 13.2 L10.4 9 Z',
+  light: 'M12 2.6 C12.7 2.6 13.1 3.3 13.1 4.2 L13.1 8.2 L22 9.6 L22 12 L13.1 11.4 L12.8 16.8 L15.8 18.4 L15.8 20 L12 19.2 L8.2 20 L8.2 18.4 L11.2 16.8 L10.9 11.4 L2 12 L2 9.6 L10.9 8.2 L10.9 4.2 C10.9 3.3 11.3 2.6 12 2.6 Z',
+  glider: 'M12 3.4 C12.5 3.4 12.8 3.8 12.8 4.4 L12.8 8.4 L23 9.2 L23 10.8 L12.7 11 L12.4 17.4 L14.8 18.6 L14.8 19.8 L12 19.2 L9.2 19.8 L9.2 18.6 L11.6 17.4 L11.3 11 L1 10.8 L1 9.2 L11.2 8.4 L11.2 4.4 C11.2 3.8 11.5 3.4 12 3.4 Z',
+  para: 'M3 10.5 Q12 2.5 21 10.5 L19.4 12.4 Q12 6.6 4.6 12.4 Z M10.3 14.8 A1.8 1.8 0 1 0 13.9 14.8 A1.8 1.8 0 1 0 10.3 14.8 Z',
+  hang: 'M12 5 L21.5 13 L12 9.8 L2.5 13 Z M11.3 10.8 L12.7 10.8 L12.4 16.2 L11.6 16.2 Z',
+  boat: 'M12 2.5 C14.8 5.2 16 8.4 16 12.2 L16 18.6 C16 20 15 21 13.6 21 L10.4 21 C9 21 8 20 8 18.6 L8 12.2 C8 8.4 9.2 5.2 12 2.5 Z',
+};
+
+function shapeSvg(sub, c) {
+  const p = (d) => `<path d="${d}" fill="${c}" stroke="rgba(0,0,0,.45)" stroke-width="1" stroke-linejoin="round"/>`;
+  switch (sub) {
+    case 'heli':
+      return `<path d="M5.5 3.5 L18.5 16.5 M18.5 3.5 L5.5 16.5" stroke="${c}" stroke-width="1.7" stroke-linecap="round" fill="none"/>` +
+        `<rect x="11.25" y="13" width="1.5" height="8.5" rx=".75" fill="${c}" stroke="rgba(0,0,0,.45)" stroke-width=".7"/>` +
+        `<ellipse cx="12" cy="10" rx="3.4" ry="5.6" fill="${c}" stroke="rgba(0,0,0,.45)"/>`;
+    case 'balloon': case 'airship':
+      return `<circle cx="12" cy="9" r="6.4" fill="${c}" stroke="rgba(0,0,0,.45)"/><path d="M10 17.5 h4 v3.5 h-4 Z" fill="${c}" stroke="rgba(0,0,0,.45)"/>`;
+    case 'drone':
+      return `<path d="M7 7 L17 17 M17 7 L7 17" stroke="${c}" stroke-width="2"/>` +
+        ['7 7', '17 7', '7 17', '17 17'].map((xy) => `<circle cx="${xy.split(' ')[0]}" cy="${xy.split(' ')[1]}" r="3" fill="${c}" stroke="rgba(0,0,0,.45)"/>`).join('');
+    case 'glider': return p(SHAPES.glider);
+    case 'paraglider': case 'parachute': return p(SHAPES.para);
+    case 'hangglider': return p(SHAPES.hang);
+    case 'light': case 'ultralight': case 'towplane': case 'dropplane': return p(SHAPES.light);
+    case 'boat': return p(SHAPES.boat);
+    default: return p(SHAPES.plane);
   }
-  return L.divIcon({ className: '', html: shape, iconSize: [14, 14], iconAnchor: [7, 9] });
+}
+
+function icon(e) {
+  const fixed = e.sub === 'balloon' || e.sub === 'airship' || e.sub === 'drone';
+  const rot = fixed ? 0 : e.heading ?? 0;
+  const html =
+    `<div class="vic" style="transform:rotate(${rot}deg)">` +
+    `<svg viewBox="0 0 24 24" width="22" height="22">${shapeSvg(e.sub, color(e))}</svg></div>`;
+  return L.divIcon({ className: '', html, iconSize: [22, 22], iconAnchor: [11, 11] });
 }
 
 const KM = (a, b) => {
@@ -46,6 +73,34 @@ const fmtAlt = (e) =>
   e.ground ? 'on ground'
     : e.alt != null ? `${Math.round(e.alt / 0.3048).toLocaleString()} ft (${Math.round(e.alt)} m)` : '';
 
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const age = (ts) => {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  return s < 90 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
+};
+
+// "Tell me more" links per target — all open in a new tab.
+function links(e) {
+  const a = (u, t) => `<a href="${u}" target="_blank" rel="noopener">${t}</a>`;
+  const g = (q) => a(`https://www.google.com/search?q=${encodeURIComponent(q)}`, 'search');
+  const out = [];
+  if (e.kind === 'sea') {
+    out.push(a(`https://www.vesselfinder.com/vessels/details/${e.id}`, 'VesselFinder'));
+    out.push(a(`https://www.marinetraffic.com/en/ais/details/ships/mmsi:${e.id}`, 'MarineTraffic'));
+    out.push(g(`${e.name && e.name !== e.id ? `"${e.name}" ` : ''}MMSI ${e.id}`));
+  } else {
+    const hex = e.id.startsWith('ogn:') ? null : e.id;
+    if (hex) {
+      out.push(a(`https://globe.airplanes.live/?icao=${hex}`, 'live track'));
+      out.push(a(`https://www.planespotters.net/hex/${hex.toUpperCase()}`, 'photos'));
+    }
+    const flt = String(e.name || '').replace(/\s+/g, '');
+    if (flt) out.push(a(`https://www.flightaware.com/live/flight/${encodeURIComponent(flt)}`, 'FlightAware'));
+    out.push(g(`${e.reg || e.name || hex} aircraft`));
+  }
+  return `<span class="links">${out.join(' · ')}</span>`;
+}
+
 function popupHtml(e) {
   const rows = [
     `<b>${esc(e.name)}</b> <span class="sub">${esc(e.sub)}</span>`,
@@ -55,15 +110,10 @@ function popupHtml(e) {
     e.speed != null ? `${Math.round(e.speed)} kn` : '',
     here ? `${e._dist.toFixed(1)} km away` : '',
     `<span class="src">${esc(e.src)} · ${age(e.ts)}</span>`,
+    links(e),
   ];
   return rows.filter(Boolean).join('<br>');
 }
-
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const age = (ts) => {
-  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  return s < 90 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
-};
 
 function upsert(e) {
   const m = markers.get(e.id);
@@ -75,6 +125,75 @@ function upsert(e) {
     const nm = L.marker(ll, { icon: icon(e) }).bindPopup(popupHtml(e)).addTo(layer);
     nm._fresh = true;
     markers.set(e.id, nm);
+  }
+}
+
+/* ---------------- weather overlay (optional, keyless) --------------------- */
+/* Rain radar tiles from RainViewer + a 3×3 wind/temperature grid from
+   Open-Meteo across the search ring. Toggled with 🌦, state remembered. */
+
+let wxOn = localStorage.getItem('wx_on') === '1';
+let radarLayer = null;
+let wxLayer = null;
+let wxTimer = null;
+
+async function radarRefresh() {
+  try {
+    const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    const d = await r.json();
+    const last = d.radar?.past?.slice(-1)[0];
+    if (!last) return;
+    const url = `${d.host}${last.path}/256/{z}/{x}/{y}/2/1_1.png`;
+    if (radarLayer) radarLayer.setUrl(url);
+    else radarLayer = L.tileLayer(url, { opacity: 0.55, attribution: 'rain © RainViewer' }).addTo(map);
+  } catch {}
+}
+
+async function windRefresh() {
+  if (!here || !wxLayer) return;
+  const fr = [-0.65, 0, 0.65];
+  const dLat = radiusKm / 111;
+  const dLon = radiusKm / (111 * Math.cos((here.lat * Math.PI) / 180));
+  const pts = [];
+  for (const fy of fr) for (const fx of fr) pts.push([here.lat + fy * dLat, here.lon + fx * dLon]);
+  try {
+    const url =
+      'https://api.open-meteo.com/v1/forecast' +
+      `?latitude=${pts.map((p) => p[0].toFixed(3)).join(',')}` +
+      `&longitude=${pts.map((p) => p[1].toFixed(3)).join(',')}` +
+      '&current=temperature_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&timezone=UTC';
+    const r = await fetch(url);
+    if (!r.ok) return;
+    let d = await r.json();
+    if (!Array.isArray(d)) d = [d];
+    wxLayer.clearLayers();
+    d.forEach((f, i) => {
+      const c = f.current;
+      if (!c || !pts[i]) return;
+      // wind_direction is where the wind comes FROM; point the arrow downwind
+      const html =
+        `<div class="wx"><div class="wxa" style="transform:rotate(${(c.wind_direction_10m + 180) % 360}deg)">↑</div>` +
+        `<div class="wxt">${Math.round(c.wind_speed_10m)}kn ${Math.round(c.temperature_2m)}°C</div></div>`;
+      L.marker(pts[i], {
+        icon: L.divIcon({ className: '', html, iconSize: [60, 34], iconAnchor: [30, 17] }),
+        interactive: false,
+      }).addTo(wxLayer);
+    });
+  } catch {}
+}
+
+function setWeather(on) {
+  wxOn = on;
+  localStorage.setItem('wx_on', on ? '1' : '0');
+  document.getElementById('wx').classList.toggle('on', on);
+  if (on) {
+    if (!wxLayer) wxLayer = L.layerGroup().addTo(map);
+    radarRefresh();
+    windRefresh();
+    if (!wxTimer) wxTimer = setInterval(() => { if (wxOn) { radarRefresh(); windRefresh(); } }, 10 * 60 * 1000);
+  } else {
+    if (radarLayer) { map.removeLayer(radarLayer); radarLayer = null; }
+    if (wxLayer) wxLayer.clearLayers();
   }
 }
 
@@ -153,6 +272,7 @@ function setLocation(lat, lon, recenter = false) {
   youMarker.setLatLng(ll);
   ring.setLatLng(ll);
   if (recenter) map.setView(ll, zoomFor(radiusKm));
+  if (wxOn) windRefresh();
   refresh();
   if (!pollTimer) pollTimer = setInterval(refresh, POLL_MS);
 }
@@ -162,6 +282,7 @@ const zoomFor = (km) => (km <= 5 ? 13 : km <= 10 ? 12 : km <= 20 ? 11 : 9);
 function setRadius(km) {
   radiusKm = km;
   ring.setRadius(km * 1000);
+  if (wxOn) windRefresh();
   if (here) { map.setView([here.lat, here.lon], zoomFor(km)); refresh(); }
 }
 
@@ -201,7 +322,9 @@ function init() {
   map.on('click', (ev) => setLocation(ev.latlng.lat, ev.latlng.lng));
 
   document.getElementById('locate').addEventListener('click', locate);
+  document.getElementById('wx').addEventListener('click', () => setWeather(!wxOn));
   radiusEl.addEventListener('change', () => setRadius(parseFloat(radiusEl.value)));
+  if (wxOn) setWeather(true);
 
   statusEl.textContent = 'locating… (or tap the map to pick a spot)';
   locate();

@@ -23,8 +23,13 @@ same-spot/same-altitude heuristic for FLARM-only device IDs.
 - **Frontend** (`public/`): static, no build step. Leaflet map centred on you
   (or a tapped pin), one ring at the chosen radius (5/10/20/50 km, default 20).
   Polls the three functions every 12 s, merges + dedupes, clips to the ring,
-  and renders a nearest-first list. Markers are coloured by class (airliner /
-  light / heli / glider / boat) and rotated by heading.
+  and renders a nearest-first list. Markers are vehicle silhouettes (plane /
+  light aircraft / heli / glider / paraglider / balloon / boat), coloured by
+  class and rotated to heading. Popups link out to airplanes.live globe,
+  Planespotters, FlightAware, VesselFinder, MarineTraffic or a web search
+  (new tab). An optional weather overlay (🌦, remembered per browser) adds
+  RainViewer rain radar plus a 3×3 Open-Meteo wind/temperature grid across
+  the ring — both keyless.
 - **Backend** (`netlify/functions/`): thin proxies.
   - `aircraft.js` — keyless ADS-B aggregators, tried in order with a 5 s
     timeout each + short-TTL cache.

@@ -17,18 +17,22 @@ html, body, #map { height: 100%; margin: 0; }
 .leaflet-container { cursor: crosshair; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 3px 0 7px; vertical-align: middle; }
 
-/* markers */
-.shape.blip {
-  width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent;
-  border-bottom: 14px solid #4ea8ff; transform-origin: 50% 70%;
-}
-.shape.dot { width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(0,0,0,.4); }
-.shape.boat { width: 10px; height: 10px; border-radius: 3px; transform: rotate(45deg); border: 1px solid rgba(0,0,0,.4); }
+/* markers: vehicle silhouettes, rotated by heading */
+.vic { transform-origin: 50% 50%; }
+.vic svg { display: block; filter: drop-shadow(0 0 1.5px rgba(0,0,0,.7)); }
+
+/* weather overlay */
+#wx.on { background: rgba(78,168,255,.4); border-color: rgba(78,168,255,.7); }
+.wx { text-align: center; color: #fff; text-shadow: 0 1px 3px #000, 0 0 2px #000; pointer-events: none; font: 11px/1.15 system-ui, sans-serif; }
+.wx .wxa { font-size: 15px; transform-origin: 50% 50%; }
+.wx .wxt { white-space: nowrap; }
 
 /* popups */
 .leaflet-popup-content { font: 12px/1.5 system-ui, sans-serif; }
 .leaflet-popup-content .sub { opacity: .6; font-size: 11px; }
 .leaflet-popup-content .src { opacity: .55; font-size: 11px; }
+.leaflet-popup-content .links a { color: #1673d1; text-decoration: none; }
+.leaflet-popup-content .links a:hover { text-decoration: underline; }
 
 /* nearest-first list */
 #panel {
