@@ -111,9 +111,11 @@
     </span>`);
   const menu = document.getElementById('layersMenu');
   document.getElementById('layersBtn').addEventListener('click', () => { menu.hidden = !menu.hidden; });
-  document.addEventListener('click', (ev) => {
+  // capture-phase pointerdown: Leaflet stops propagation of map presses, so
+  // a bubble-phase document listener (or click) never hears them
+  document.addEventListener('pointerdown', (ev) => {
     if (!ev.target.closest('#layersWrap')) menu.hidden = true;
-  });
+  }, true);
 
   const dock = document.createElement('div');
   dock.id = 'ovcards';
@@ -268,11 +270,11 @@
       let d = await r.json();
       if (!Array.isArray(d)) d = [d];
       marineGroup.clearLayers();
-      let any = false;
+      let best = null;
       d.forEach((f, i) => {
         const c = f.current;
         if (!c || c.wave_height == null || !pts[i]) return;
-        any = true;
+        if (!best) best = c;
         const bits = [`${c.wave_height.toFixed(1)}<small>m</small>`];
         if (c.wave_period != null) bits.push(`${Math.round(c.wave_period)}<small>s</small>`);
         if (c.sea_surface_temperature != null) bits.push(`${Math.round(c.sea_surface_temperature)}<small>°C</small>`);
@@ -286,8 +288,16 @@
           interactive: false,
         }).addTo(marineGroup);
       });
-      if (any) dropCard('ovc-marine');
-      else card('ovc-marine').innerHTML = '<h4>🌊 sea state</h4><div>no sea within the ring</div>';
+      // summary card so the layer visibly does something even when the
+      // map pills sit at the ring edge, off-screen on a phone
+      if (best) {
+        const rows = [`<div class="r"><span>waves</span><span>${best.wave_height.toFixed(1)} m${best.wave_period != null ? ` · ${Math.round(best.wave_period)} s` : ''}</span></div>`];
+        if (best.wave_direction != null) rows.push(`<div class="r"><span>from</span><span>${compass(best.wave_direction)}</span></div>`);
+        if (best.sea_surface_temperature != null) rows.push(`<div class="r"><span>sea temp</span><span>${best.sea_surface_temperature.toFixed(1)} °C</span></div>`);
+        card('ovc-marine').innerHTML = '<h4>🌊 sea state</h4>' + rows.join('');
+      } else {
+        card('ovc-marine').innerHTML = '<h4>🌊 sea state</h4><div>no sea within the ring</div>';
+      }
     } catch {}
   }
   function marineOn() {
@@ -439,8 +449,25 @@
 
   menu.querySelectorAll('input[data-l]').forEach((cb) => {
     cb.checked = st[cb.dataset.l];
-    cb.addEventListener('change', () => setLayer(cb.dataset.l, cb.checked));
+    cb.addEventListener('change', () => {
+      setLayer(cb.dataset.l, cb.checked);
+      // on phones the menu covers the card strip — close it so the result shows
+      if (window.innerWidth <= 640) menu.hidden = true;
+    });
   });
+
+  // mobile: pin the card strip and the layers sheet just below the HUD,
+  // whatever height it wraps to
+  const hudEl = document.getElementById('hud');
+  function placeUi() {
+    const mobile = window.innerWidth <= 640;
+    const top = `${hudEl.getBoundingClientRect().bottom + 8}px`;
+    dock.style.top = mobile ? top : '';
+    menu.style.top = mobile ? top : '';
+  }
+  new ResizeObserver(placeUi).observe(hudEl);
+  window.addEventListener('resize', placeUi);
+  placeUi();
 
   // restore saved layers once a location exists; re-run location-sensitive
   // overlays when the pin or radius moves

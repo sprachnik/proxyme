@@ -76,6 +76,7 @@ html, body, #map { height: 100%; margin: 0; }
   white-space: nowrap; font: 13px/1.4 system-ui, sans-serif;
 }
 #layersMenu label { display: flex; gap: 7px; align-items: center; cursor: pointer; }
+#layersMenu[hidden] { display: none; }
 
 /* overlays: card dock */
 #ovcards {
@@ -94,3 +95,17 @@ html, body, #map { height: 100%; margin: 0; }
 .satic svg { display: block; fill: #d5dde8; filter: drop-shadow(0 0 1.5px rgba(0,0,0,.8)); }
 .satic.vis svg { fill: #ffd35e; filter: drop-shadow(0 0 4px rgba(255,211,94,.9)); }
 .ovcard .satrow { cursor: pointer; }
+
+/* mobile layout: menu becomes a sheet, cards a swipeable strip under the HUD */
+@media (max-width: 640px) {
+  #hud { gap: 8px; padding: 7px 10px; font-size: 12px; }
+  #hud .legend { display: none; }
+  #layersMenu { position: fixed; left: 10px; right: 10px; }
+  #ovcards {
+    left: 10px; right: 10px; width: auto;
+    flex-direction: row; overflow-x: auto; gap: 8px;
+    scrollbar-width: none;
+  }
+  #ovcards::-webkit-scrollbar { display: none; }
+  .ovcard { flex: none; width: 200px; box-sizing: border-box; }
+}
