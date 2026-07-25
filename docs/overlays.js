@@ -284,7 +284,7 @@
           `<svg class="wxa" viewBox="0 0 24 24" style="transform:rotate(${rot}deg)"><path d="M12 3 L17.5 14 L12 11.2 L6.5 14 Z" fill="#6fe3d2"/></svg>` +
           `<span>${bits.join('')}</span></div></div>`;
         L.marker(pts[i], {
-          icon: L.divIcon({ className: '', html, iconSize: [110, 26], iconAnchor: [55, 13] }),
+          icon: L.divIcon({ className: '', html, iconSize: [110, 26], iconAnchor: [55, -14] }),
           interactive: false,
         }).addTo(marineGroup);
       });

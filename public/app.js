@@ -184,7 +184,7 @@ async function windRefresh() {
         `<span>${Math.round(c.wind_speed_10m)}<small>kn</small>${Math.round(c.temperature_2m)}<small>°C</small></span>` +
         `</div></div>`;
       L.marker(pts[i], {
-        icon: L.divIcon({ className: '', html, iconSize: [110, 26], iconAnchor: [55, 13] }),
+        icon: L.divIcon({ className: '', html, iconSize: [110, 26], iconAnchor: [55, 44] }),
         interactive: false,
       }).addTo(wxLayer);
     });
@@ -322,9 +322,16 @@ function init() {
   }).addTo(map);
   layer = L.layerGroup().addTo(map);
 
-  youMarker = L.circleMarker(FALLBACK, { radius: 6, color: '#fff', fillColor: '#ff5470', fillOpacity: 1 })
+  const pinIcon = L.divIcon({
+    className: '',
+    html: '<div class="youpin"><svg viewBox="0 0 24 36" width="24" height="36">' +
+      '<path d="M12 0 C5.4 0 0 5.4 0 12 c0 8.6 12 24 12 24 s12 -15.4 12 -24 C24 5.4 18.6 0 12 0 Z" fill="#ff5470" stroke="#fff" stroke-width="1.6"/>' +
+      '<circle cx="12" cy="11.6" r="4.2" fill="#fff"/></svg></div>',
+    iconSize: [24, 36], iconAnchor: [12, 35],
+  });
+  youMarker = L.marker(FALLBACK, { icon: pinIcon })
     .addTo(map)
-    .bindTooltip('search centre — tap the map to move', { direction: 'top', offset: [0, -6] });
+    .bindTooltip('search centre — tap the map to move', { direction: 'top', offset: [0, -32] });
   ring = L.circle(FALLBACK, { radius: radiusKm * 1000, color: '#4ea8ff', fill: false, opacity: .35 }).addTo(map);
 
   // Drop a pin: tap/click anywhere to search around that point.
