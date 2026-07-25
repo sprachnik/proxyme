@@ -53,6 +53,21 @@ Normalised shape returned by all functions:
 `balloon`, `boat`, …) and `src` names the feed (`ADS-B`, `MLAT (inferred)`,
 `OGN/FLARM`, `AIS`).
 
+## Optional overlays (☰ in the HUD, all keyless, remembered per browser)
+
+- **🛰 satellites overhead** — CelesTrak TLEs propagated in-browser with
+  satellite.js every 5 s; lists everything above 20° elevation with look
+  direction, flags "sunlit in a dark sky — look up", Earth-shadow test
+  included. Tap a row to fly to the sub-satellite point.
+- **🌊 sea state** — Open-Meteo Marine: wave height/period + sea surface
+  temperature pills at the ring points that are actually wet.
+- **🌿 air & pollen** — Open-Meteo Air Quality: European AQI, PM2.5, UV and
+  grass/birch/ragweed pollen as a corner card.
+- **🌗 sun & moon** — no API, pure astronomy math: sunset/sunrise countdown,
+  golden hour, moon phase/illumination, plus bearing rays on the map when
+  either body is up.
+- **🌍 earthquakes** — USGS last-24 h feed within max(500 km, 10× ring).
+
 ## Environment variables
 
 Set via the Netlify dashboard or `netlify env:set`:
