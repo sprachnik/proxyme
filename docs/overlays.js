@@ -274,6 +274,15 @@
       if (!fresh.has(id)) { satGroup.removeLayer(m); satMarkers.delete(id); }
     }
 
+    // bearing rays from the pin: sats sit far outside the ring by nature,
+    // so show which way to look without leaving ring zoom
+    for (const o of up.slice(0, 5)) {
+      L.polyline([[here.lat, here.lon], dest(here.lat, here.lon, o.az, radiusKm * 0.85)], {
+        color: o.visible ? '#ffd35e' : '#9fb0c8', weight: 1.5, opacity: 0.5,
+        dashArray: '2 5', interactive: false,
+      }).addTo(satTracks);
+    }
+
     // A satellite 20° up is hundreds of km away on the ground — its marker
     // is off-screen at ring zoom. The card is the primary UI; tap to fly out.
     const LIST_N = 10;
@@ -309,8 +318,10 @@
     try {
       await loadSatLib();
       satRecs = satRecs || parseTles(await loadTles());
+      if (!st.sat) return; // toggled off while orbits were downloading
       satTick();
-      // the full active catalog is ~11k objects — tick slower to stay smooth
+      clearInterval(satTimer);
+      // the full active catalog is ~16k objects — tick slower to stay smooth
       satTimer = setInterval(satTick, satAll ? 10000 : 5000);
     } catch (err) {
       card('ovc-sat').innerHTML = `<h4>🛰 satellites</h4><div>${H(err.message)}</div>`;
@@ -339,6 +350,7 @@
       const r = await fetch(url);
       if (!r.ok) return;
       let d = await r.json();
+      if (!st.marine) return; // toggled off while the fetch was in flight
       if (!Array.isArray(d)) d = [d];
       marineGroup.clearLayers();
       let best = null, bestHourly = null;
@@ -402,6 +414,7 @@
   function marineOn() {
     marineGroup = marineGroup || L.layerGroup().addTo(map);
     marineRefresh();
+    clearInterval(marineTimer);
     marineTimer = setInterval(marineRefresh, 15 * 60 * 1000);
   }
   function marineOff() {
@@ -427,7 +440,7 @@
       const r = await fetch(url);
       if (!r.ok) return;
       const c = (await r.json()).current;
-      if (!c) return;
+      if (!c || !st.air) return; // drop stale responses after toggle-off
       const rows = [];
       if (c.european_aqi != null) {
         const [, word, colr] = AQI_BANDS.find(([lim]) => c.european_aqi <= lim);
@@ -443,7 +456,8 @@
       card('ovc-air').innerHTML = '<h4>🌿 air & pollen</h4>' + rows.join('');
     } catch {}
   }
-  function airOn() { airRefresh(); airTimer = setInterval(airRefresh, 30 * 60 * 1000); }
+  function airOn() { airRefresh(); clearInterval(airTimer);
+    airTimer = setInterval(airRefresh, 30 * 60 * 1000); }
   function airOff() { clearInterval(airTimer); airTimer = null; dropCard('ovc-air'); }
 
   /* ============ 4. sun & moon (no API — astronomy math) ============ */
@@ -482,7 +496,8 @@
     sunRay = ray(sunRay, sp.alt, sp.az, '#ffcf4d', null);
     moonRay = ray(moonRay, mp.alt, mp.az, '#c9d4e4', '6 6');
   }
-  function sunOn() { sunRefresh(); sunTimer = setInterval(sunRefresh, 60 * 1000); }
+  function sunOn() { sunRefresh(); clearInterval(sunTimer);
+    sunTimer = setInterval(sunRefresh, 60 * 1000); }
   function sunOff() {
     clearInterval(sunTimer); sunTimer = null;
     if (sunRay) { map.removeLayer(sunRay); sunRay = null; }
@@ -499,6 +514,7 @@
       const r = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
       if (!r.ok) return;
       const d = await r.json();
+      if (!st.quake) return; // drop stale responses after toggle-off
       const netKm = Math.max(500, radiusKm * 10); // quakes are rare — cast a wider net
       quakeGroup.clearLayers();
       let n = 0;
@@ -527,6 +543,7 @@
   function quakeOn() {
     quakeGroup = quakeGroup || L.layerGroup().addTo(map);
     quakeRefresh();
+    clearInterval(quakeTimer);
     quakeTimer = setInterval(quakeRefresh, 5 * 60 * 1000);
   }
   function quakeOff() {
@@ -540,10 +557,14 @@
     sun: [sunOn, sunOff], quake: [quakeOn, quakeOff],
   };
 
+  const started = {};
+  const start = (k) => { if (!started[k]) { started[k] = true; LAYERS[k][0](); } };
+  const stop = (k) => { if (started[k]) { started[k] = false; LAYERS[k][1](); } };
+
   function setLayer(k, on) {
     if (st[k] === on) return;
     st[k] = on; save();
-    (on ? LAYERS[k][0] : LAYERS[k][1])();
+    (on ? start : stop)(k);
   }
 
   menu.querySelectorAll('input[data-l]').forEach((cb) => {
@@ -578,7 +599,7 @@
     const first = lastKey === null;
     lastKey = key;
     if (first) {
-      for (const k of Object.keys(LAYERS)) if (st[k]) LAYERS[k][0]();
+      for (const k of Object.keys(LAYERS)) if (st[k]) start(k);
     } else {
       satCand = null; // candidate cache is location-specific
       if (st.marine) marineRefresh();

@@ -368,6 +368,7 @@ async function radarRefresh() {
   try {
     const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
     const d = await r.json();
+    if (!wxOn) return; // toggled off while the fetch was in flight
     const last = d.radar?.past?.slice(-1)[0];
     if (!last) return;
     // Radar data only exists at low zooms — 512px tiles + maxNativeZoom make
@@ -398,6 +399,7 @@ async function windRefresh() {
     const r = await fetch(url);
     if (!r.ok) return;
     let d = await r.json();
+    if (!wxOn) return; // toggled off while the fetch was in flight
     if (!Array.isArray(d)) d = [d];
     wxLayer.clearLayers();
     d.forEach((f, i) => {
