@@ -5,6 +5,15 @@ const panelEl = document.getElementById('panel');
 const radiusEl = document.getElementById('radius');
 
 let map, youMarker, ring, layer;
+// which vehicle feeds are on — toggled from the ☰ menu (overlays.js)
+const VEH_KEY = 'vehicles';
+const show = Object.assign({ air: true, ogn: true, sea: true },
+  JSON.parse(localStorage.getItem(VEH_KEY) || '{}'));
+function setVehicle(k, on) {
+  show[k] = on;
+  localStorage.setItem(VEH_KEY, JSON.stringify(show));
+  refresh();
+}
 let pollTimer = null;
 let here = null; // { lat, lon } current search centre
 let radiusKm = 20;
@@ -232,9 +241,9 @@ async function refresh() {
   const { lat, lon } = here;
   const q = `lat=${lat}&lon=${lon}&radiusKm=${radiusKm}`;
   const [air, ogn, sea] = await Promise.allSettled([
-    fetch(`/api/aircraft?${q}`).then((r) => r.json()),
-    fetch(`/api/gliders?${q}`).then((r) => r.json()),
-    fetch(`/api/vessels?${q}`).then((r) => r.json()),
+    show.air ? fetch(`/api/aircraft?${q}`).then((r) => r.json()) : Promise.resolve([]),
+    show.ogn ? fetch(`/api/gliders?${q}`).then((r) => r.json()) : Promise.resolve([]),
+    show.sea ? fetch(`/api/vessels?${q}`).then((r) => r.json()) : Promise.resolve([]),
   ]);
 
   // Merge: ADS-B wins on shared ICAO hex; OGN adds FLARM-only traffic.
@@ -267,9 +276,9 @@ async function refresh() {
   const nAir = entities.filter((e) => e.kind === 'air' && !GLIDERY.has(e.sub)).length;
   const nGlide = entities.filter((e) => GLIDERY.has(e.sub)).length;
   const nSea = entities.filter((e) => e.kind === 'sea').length;
-  const seaErr = errOf(sea);
+  const seaErr = show.sea && errOf(sea);
   const notes = [];
-  if (errOf(air) && errOf(ogn)) notes.push('air feeds down');
+  if (show.air && errOf(air) && (!show.ogn || errOf(ogn))) notes.push('air feeds down');
   if (seaErr) notes.push(seaErr.includes('AISSTREAM_API_KEY') ? 'sea off (no API key)' : 'sea feed down');
   statusEl.textContent =
     `${nAir} aircraft · ${nGlide} gliders · ${nSea} boats` +

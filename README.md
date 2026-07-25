@@ -55,7 +55,10 @@ Normalised shape returned by all functions:
 
 ## Optional overlays (☰ menu, all keyless, remembered per browser)
 
-Grouped **sky / water / ground / nearby**; each is a card in the dock
+Grouped **vehicles / sky / water / ground / nearby** — the three core
+vehicle feeds (✈ aircraft, 🪂 gliders & FLARM, 🚢 boats) are toggles too,
+so the map can be exactly what you care about. Each overlay is a card in
+the dock
 (swipeable strip under the toolbar on mobile) plus markers where relevant.
 
 - **🌦 rain radar & wind** — RainViewer tiles + Open-Meteo wind/temp pills.

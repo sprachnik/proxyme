@@ -103,6 +103,10 @@
     <span id="layersWrap">
       <button id="layersBtn" type="button" title="More overlays">☰</button>
       <div id="layersMenu" hidden>
+        <div class="sec">vehicles</div>
+        <label><input type="checkbox" data-v="air"> ✈️ aircraft</label>
+        <label><input type="checkbox" data-v="ogn"> 🪂 gliders &amp; FLARM</label>
+        <label><input type="checkbox" data-v="sea"> 🚢 boats (AIS)</label>
         <div class="sec">sky</div>
         <label><input type="checkbox" data-wx> 🌦 rain radar &amp; wind</label>
         <label><input type="checkbox" data-l="sat"> 🛰 satellites</label>
@@ -955,6 +959,15 @@
     st[k] = on; save();
     (on ? start : stop)(k);
   }
+
+  // vehicle feeds live in app.js — rows drive its setVehicle()
+  menu.querySelectorAll('input[data-v]').forEach((cb) => {
+    cb.checked = show[cb.dataset.v];
+    cb.addEventListener('change', () => {
+      setVehicle(cb.dataset.v, cb.checked);
+      if (window.innerWidth <= 640) menu.hidden = true;
+    });
+  });
 
   // weather lives in app.js — the menu row just drives its setWeather()
   const wxCb = menu.querySelector('input[data-wx]');

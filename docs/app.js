@@ -10,6 +10,10 @@ const panelEl = document.getElementById('panel');
 const radiusEl = document.getElementById('radius');
 
 let map, youMarker, ring, layer;
+// which vehicle feeds are on — toggled from the ☰ menu (overlays.js)
+const VEH_KEY = 'vehicles';
+const show = Object.assign({ air: true, ogn: true, sea: true },
+  JSON.parse(localStorage.getItem(VEH_KEY) || '{}'));
 let pollTimer = null;
 let here = null; // { lat, lon } current search centre
 let radiusKm = 20;
@@ -186,7 +190,7 @@ function aisSubscribe() {
 }
 
 function aisConnect() {
-  if (!aisKey() || ws) return;
+  if (!show.sea || !aisKey() || ws) return;
   ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
   ws.onopen = () => { wsLive = true; wsRetryMs = 8000; aisSubscribe(); };
   ws.onmessage = async (ev) => {
@@ -203,6 +207,16 @@ function aisConnect() {
     wsRetryMs = Math.min(wsRetryMs * 2, 120000); // back off on bad key/outage
   };
   ws.onerror = () => { try { ws.close(); } catch {} };
+}
+
+function setVehicle(k, on) {
+  show[k] = on;
+  localStorage.setItem(VEH_KEY, JSON.stringify(show));
+  if (k === 'sea') {
+    if (on) aisConnect();
+    else if (ws) { const old = ws; ws = null; try { old.onclose = null; old.close(); } catch {} wsLive = false; }
+  }
+  refresh();
 }
 
 function setAisKey() {
@@ -443,8 +457,8 @@ async function refresh() {
   if (!here) return;
   const { lat, lon } = here;
   const [air, ogn] = await Promise.allSettled([
-    fetchAircraft(lat, lon, radiusKm),
-    fetchGliders(lat, lon, radiusKm),
+    show.air ? fetchAircraft(lat, lon, radiusKm) : Promise.resolve([]),
+    show.ogn ? fetchGliders(lat, lon, radiusKm) : Promise.resolve([]),
   ]);
 
   const now = Date.now();
@@ -462,7 +476,7 @@ async function refresh() {
         adsbList.some((a) => KM(a, e) < 0.5 && Math.abs((a.alt ?? e.alt) - e.alt) < 300)) continue;
     byId.set(e.id, e);
   }
-  for (const v of vessels.values()) byId.set(v.id, v);
+  if (show.sea) for (const v of vessels.values()) byId.set(v.id, v);
 
   const entities = [...byId.values()]
     .map((e) => ((e._dist = KM(here, e)), e))
@@ -480,9 +494,11 @@ async function refresh() {
   const nGlide = entities.filter((e) => GLIDERY.has(e.sub)).length;
   const nSea = entities.filter((e) => e.kind === 'sea').length;
   const notes = [];
-  if (air.status === 'rejected' && ogn.status === 'rejected') notes.push('air feeds down');
-  if (!aisKey()) notes.push('boats off — tap 🔑 for a free aisstream.io key');
-  else if (!wsLive) notes.push('sea connecting…');
+  if (show.air && air.status === 'rejected' && (!show.ogn || ogn.status === 'rejected')) notes.push('air feeds down');
+  if (show.sea) {
+    if (!aisKey()) notes.push('boats off — tap 🔑 for a free aisstream.io key');
+    else if (!wsLive) notes.push('sea connecting…');
+  }
   statusEl.textContent =
     `${nAir} aircraft · ${nGlide} gliders · ${nSea} boats` +
     (notes.length ? ` · ${notes.join(' · ')}` : '');
