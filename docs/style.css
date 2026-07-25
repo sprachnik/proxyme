@@ -23,9 +23,17 @@ html, body, #map { height: 100%; margin: 0; }
 
 /* weather overlay */
 #wx.on { background: rgba(78,168,255,.4); border-color: rgba(78,168,255,.7); }
-.wx { text-align: center; color: #fff; text-shadow: 0 1px 3px #000, 0 0 2px #000; pointer-events: none; font: 11px/1.15 system-ui, sans-serif; }
-.wx .wxa { font-size: 15px; transform-origin: 50% 50%; }
-.wx .wxt { white-space: nowrap; }
+.wxwrap { display: flex; justify-content: center; pointer-events: none; }
+.wx {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(15,17,22,.82); color: #fff;
+  border: 1px solid rgba(255,255,255,.28); border-radius: 999px;
+  padding: 3px 10px; font: 600 12.5px/1.2 system-ui, sans-serif;
+  white-space: nowrap; box-shadow: 0 1px 5px rgba(0,0,0,.45);
+}
+.wx .wxa { width: 14px; height: 14px; flex: none; transform-origin: 50% 50%; }
+.wx small { font-size: 9px; opacity: .75; margin: 0 3px 0 1px; }
+.wx small:last-child { margin-right: 0; }
 
 /* popups */
 .leaflet-popup-content { font: 12px/1.5 system-ui, sans-serif; }

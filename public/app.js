@@ -143,19 +143,25 @@ async function radarRefresh() {
     const d = await r.json();
     const last = d.radar?.past?.slice(-1)[0];
     if (!last) return;
-    const url = `${d.host}${last.path}/256/{z}/{x}/{y}/2/1_1.png`;
+    // Radar data only exists at low zooms — 512px tiles + maxNativeZoom make
+    // Leaflet upscale real radar instead of showing placeholder tiles.
+    const url = `${d.host}${last.path}/512/{z}/{x}/{y}/2/1_1.png`;
     if (radarLayer) radarLayer.setUrl(url);
-    else radarLayer = L.tileLayer(url, { opacity: 0.55, attribution: 'rain © RainViewer' }).addTo(map);
+    else radarLayer = L.tileLayer(url, {
+      opacity: 0.5, tileSize: 512, zoomOffset: -1, maxNativeZoom: 8,
+      attribution: 'rain © RainViewer',
+    }).addTo(map);
   } catch {}
 }
 
 async function windRefresh() {
   if (!here || !wxLayer) return;
-  const fr = [-0.65, 0, 0.65];
+
   const dLat = radiusKm / 111;
   const dLon = radiusKm / (111 * Math.cos((here.lat * Math.PI) / 180));
-  const pts = [];
-  for (const fy of fr) for (const fx of fr) pts.push([here.lat + fy * dLat, here.lon + fx * dLon]);
+  // centre + N/S/E/W at 0.65R — a full grid crowds the map with pills
+  const pts = [[0, 0], [-0.65, 0], [0.65, 0], [0, -0.65], [0, 0.65]]
+    .map(([fy, fx]) => [here.lat + fy * dLat, here.lon + fx * dLon]);
   try {
     const url =
       'https://api.open-meteo.com/v1/forecast' +
@@ -172,10 +178,13 @@ async function windRefresh() {
       if (!c || !pts[i]) return;
       // wind_direction is where the wind comes FROM; point the arrow downwind
       const html =
-        `<div class="wx"><div class="wxa" style="transform:rotate(${(c.wind_direction_10m + 180) % 360}deg)">↑</div>` +
-        `<div class="wxt">${Math.round(c.wind_speed_10m)}kn ${Math.round(c.temperature_2m)}°C</div></div>`;
+        `<div class="wxwrap"><div class="wx">` +
+        `<svg class="wxa" viewBox="0 0 24 24" style="transform:rotate(${(c.wind_direction_10m + 180) % 360}deg)">` +
+        `<path d="M12 3 L17.5 14 L12 11.2 L6.5 14 Z" fill="#8ed0ff"/></svg>` +
+        `<span>${Math.round(c.wind_speed_10m)}<small>kn</small>${Math.round(c.temperature_2m)}<small>°C</small></span>` +
+        `</div></div>`;
       L.marker(pts[i], {
-        icon: L.divIcon({ className: '', html, iconSize: [60, 34], iconAnchor: [30, 17] }),
+        icon: L.divIcon({ className: '', html, iconSize: [110, 26], iconAnchor: [55, 13] }),
         interactive: false,
       }).addTo(wxLayer);
     });
