@@ -1,140 +1,116 @@
 # proxme
 
-A lazy "what's moving near me" tracker: everything with a public position feed
-within ~20 km of you, on one map. Aircraft (airliners down to light aircraft,
-including MLAT-inferred positions), gliders/paragliders/balloons (FLARM via
-the Open Glider Network), and boats (AIS). Static frontend (Leaflet + OSM)
-with Netlify Functions acting as thin proxies that hide keys, normalise
-responses to one shape, and cache.
+Everything with a public position or nearby-data feed, within ~20 km of you,
+on one map. Started as a "lazy flight tracker"; now it tracks aircraft (down
+to light aircraft and MLAT-inferred positions), gliders, boats, satellites,
+trains, tides, weather, wildlife, power cuts, heritage and more — almost all
+of it from **keyless** public APIs, with a couple of open datasets harvested
+into the repo.
 
-## Data sources
+Two deployments from one codebase:
 
-| Feed | Source | Key needed | Covers |
+| Build | Folder | Backend | Live at |
 |---|---|---|---|
-| `/api/aircraft` | adsb.lol → adsb.fi → airplanes.live (fallback chain) | no | ADS-B + MLAT: airliners, light aircraft, helicopters |
-| `/api/gliders` | live.glidernet.org (Open Glider Network) | no | FLARM/OGN: gliders, paragliders, hang gliders, tow planes, balloons |
-| `/api/vessels` | aisstream.io websocket | yes (free) | AIS: ships and boats |
+| GitHub Pages | `docs/` | none — browser calls sources directly | `https://<user>.github.io/proxyme/` |
+| Netlify | `public/` + `netlify/functions/` | thin proxy functions (key hiding, caching, fallback chains) | `netlify deploy` |
 
-The two air feeds overlap; the frontend dedupes by ICAO hex, plus a
-same-spot/same-altitude heuristic for FLARM-only device IDs.
+## Using it
 
-## How it works
+Open the page, allow location (or tap the map to drop a pin anywhere).
+Toolbar: 📍 re-locate · radius picker (5/10/20/50 km, default 20) ·
+🔑 AISStream key for boats (Pages build) · ☰ everything else.
 
-- **Frontend** (`public/`): static, no build step. Leaflet map centred on you
-  (or a tapped pin), one ring at the chosen radius (5/10/20/50 km, default 20).
-  Polls the three functions every 12 s, merges + dedupes, clips to the ring,
-  and renders a nearest-first list. Markers are vehicle silhouettes (plane /
-  light aircraft / heli / glider / paraglider / balloon / boat), coloured by
-  class and rotated to heading. Popups link out to airplanes.live globe,
-  Planespotters, FlightAware, VesselFinder, MarineTraffic or a web search
-  (new tab). An optional weather overlay (🌦, remembered per browser) adds
-  RainViewer rain radar plus a 3×3 Open-Meteo wind/temperature grid across
-  the ring — both keyless.
-- **Backend** (`netlify/functions/`): thin proxies.
-  - `aircraft.js` — keyless ADS-B aggregators, tried in order with a 5 s
-    timeout each + short-TTL cache.
-  - `gliders.js` — OGN bbox query, parses the lxml marker format.
-  - `vessels.js` — opens an AISStream websocket, subscribes to a bbox, drains
-    ~6 s, dedupes by MMSI, then merges into a rolling 10-minute history blob
-    so sparse AIS transmitters don't flicker off the map between polls.
-  - `_normalize.js` — maps all sources to one shape.
-  - `_store.js` — storage seam. MVP uses Netlify Blobs for caching (degrades
-    to no-cache outside the Netlify runtime); a future Supabase pass swaps
-    this file's bodies only.
+The ☰ menu is grouped into five sections; every toggle is remembered per
+browser. Overlays render as cards in a dock (top-right on desktop, a
+swipeable strip under the toolbar on mobile) plus map markers where relevant.
 
-Normalised shape returned by all functions:
+### Vehicles (core feeds, on by default)
 
-```js
-{ id, kind: 'air' | 'sea', sub, lat, lon, alt /* m */, ground,
-  heading, speed /* kn */, name, reg, model, src, ts }
-```
+| Toggle | Source | Key | Notes |
+|---|---|---|---|
+| ✈️ aircraft | Pages: airplanes.live · Netlify: adsb.lol → adsb.fi → airplanes.live | no | ADS-B + MLAT; class inferred from emitter category *and* ICAO type designator (MLAT targets send no category) |
+| 🪂 gliders & FLARM | Open Glider Network (live.glidernet.org) | no | gliders, paragliders, hang gliders, balloons; deduped against ADS-B by hex + same-spot heuristic |
+| 🚢 boats | aisstream.io | free key | Pages: persistent browser websocket, key kept in localStorage. Netlify: 6 s drains merged with a 10-min history blob |
+| 🚉 train departures | Huxley community Darwin proxy | no | live boards for the 3 nearest stations; station coords are a static harvest (`data/stations.min.json`). Community demo instance — treat as personal-use |
 
-`sub` is the vehicle class (`plane`, `light`, `heli`, `glider`, `paraglider`,
-`balloon`, `boat`, …) and `src` names the feed (`ADS-B`, `MLAT (inferred)`,
-`OGN/FLARM`, `AIS`).
+Vehicles get silhouette markers rotated to heading, popups with reg / model /
+altitude / speed / distance / data source / fix age, out-links (airplanes.live
+globe, Planespotters, FlightAware, VesselFinder, MarineTraffic, search), and a
+nearest-first list panel (tap to fly to the target).
 
-## Optional overlays (☰ menu, all keyless, remembered per browser)
+### Sky
 
-Grouped **vehicles / sky / water / ground / nearby** — the three core
-vehicle feeds (✈ aircraft, 🪂 gliders & FLARM, 🚢 boats) are toggles too,
-so the map can be exactly what you care about. Each overlay is a card in
-the dock
-(swipeable strip under the toolbar on mobile) plus markers where relevant.
-
-- **🌦 rain radar & wind** — RainViewer tiles + Open-Meteo wind/temp pills.
-- **🛰 satellites** — CelesTrak TLEs propagated in-browser (satellite.js):
-  overhead list with look direction and 👁 naked-eye flag (Earth-shadow
-  test), ground tracks, bearing rays from the pin, next ISS/Tiangong pass
-  predictions, and an opt-in full 16k-object active catalog.
-- **🌗 sun, moon & aurora** — astronomy math (no API) + NOAA SWPC Kp index.
-- **🌊 sea & tides** — Open-Meteo Marine: waves, sea temperature, and next
-  high/low water derived from the hourly sea-level series.
-- **💧 rivers & floods** — Environment Agency: live gauge levels + flood
-  alerts (England).
-- **🌿 air, pollen & UV** — Open-Meteo AQ + Sensor.Community citizen PM2.5.
-- **⚡ grid electricity** — carbonintensity.org.uk via postcodes.io reverse
-  geocode: live regional carbon + generation mix (GB).
-- **🌍 earthquakes** — USGS last-24 h within max(500 km, 10× ring).
-- **🏗 infrastructure** — OpenStreetMap via Overpass (mirror fallback,
-  24 h cache): defibs, lifeboats, wrecks, bunkers/pillboxes, lighthouses,
-  EV chargers, turbines, masts, water taps, toilets — pick categories by
-  tapping chips on the card.
-- **📖 wikipedia** — nearby articles (geosearch).
-- **🚨 street crime** — police.uk, last published month, 1-mile area.
-- **🍽 food hygiene** — Food Standards Agency ratings, colour-coded dots.
-- **🚉 train departures** — live boards for your 3 nearest stations via the
-  Huxley community Darwin proxy; station coordinates are a static harvest
-  (`data/stations.min.json`, 2,606 stations).
-- **🦊 wildlife** — iNaturalist: latest 50 verifiable observations in the
-  ring, with photos and research-grade flags.
-- **🔌 power cuts** — UK Power Networks live faults (London/SE/East):
-  active/planned/restored with restoration estimates.
-- **🏛 heritage** — planning.data.gov.uk: listed buildings, scheduled
-  monuments, conservation areas, parks, ancient woodland (chips; queried
-  within 6 km — their spatial API crawls on bigger envelopes).
-- **🔵 blue plaques** — openplaques.org CC0 dump harvested to
-  `data/plaques.min.json` (17,332 geolocated UK plaques, ~1 MB, loaded
-  only when toggled).
-
-## Environment variables
-
-Set via the Netlify dashboard or `netlify env:set`:
-
-| Var | Required | Notes |
+| Toggle | Source | Notes |
 |---|---|---|
-| `AISSTREAM_API_KEY` | only for boats | Free key from aisstream.io. Without it the sea feed reports itself off and the air feeds still work. |
+| 🌦 rain radar & wind | RainViewer + Open-Meteo | radar upscaled beyond its native z7; wind/temp pills at centre + N/S/E/W |
+| 🛰 satellites | CelesTrak TLEs + satellite.js in-browser | overhead list with look direction, 👁 naked-eye flag (Earth-shadow test), ground tracks, bearing rays, next ISS/Tiangong passes; opt-in full ~16k active catalog (two-tier propagation keeps phones smooth) |
+| 🌗 sun, moon & aurora | astronomy math (no API) + NOAA SWPC | sunset countdown, golden hour, moon phase, sun/moon bearing rays, Kp index |
 
-## GitHub Pages build (`docs/`)
+### Water
 
-`docs/` is a self-contained static variant with no backend — the browser
-calls the sources directly. Differences from the Netlify build:
+| Toggle | Source | Notes |
+|---|---|---|
+| 🌊 sea & tides | Open-Meteo Marine | wave pills at wet ring points; next high/low water derived from the hourly sea-level series |
+| 💧 rivers & floods | Environment Agency (England) | live gauge levels for nearest stations + active flood alerts |
 
-- **Aircraft**: airplanes.live only (the one keyless aggregator with open
-  CORS), so no fallback chain.
-- **Gliders**: OGN direct, unchanged.
-- **Boats**: a persistent AISStream websocket from the browser — positions
-  stream continuously instead of 6 s drains. Needs your own free
-  aisstream.io key: tap 🔑 in the HUD; it's stored in `localStorage` only,
-  never in the repo.
+### Ground
 
-Enable it under repo **Settings → Pages → Deploy from a branch**, pick the
-default branch and the `/docs` folder. The page then lives at
-`https://<user>.github.io/proxyme/`.
+| Toggle | Source | Notes |
+|---|---|---|
+| 🌿 air, pollen & UV | Open-Meteo AQ + Sensor.Community | European AQI band, PM2.5, UV, grass/birch/ragweed pollen, citizen sensors |
+| ⚡ grid electricity | carbonintensity.org.uk via postcodes.io | live regional carbon + generation mix (GB) |
+| 🌍 earthquakes | USGS | last 24 h within max(500 km, 10× ring) |
+| 🔌 power cuts | UK Power Networks open data | live faults (London/SE/East): active / planned / restored, restoration estimates |
 
-## Run / deploy
+### Nearby
 
-```bash
-npm i
-npx netlify dev      # local: http://localhost:8888
-npx netlify deploy --prod
-```
+| Toggle | Source | Notes |
+|---|---|---|
+| 🏗 infrastructure | OpenStreetMap via Overpass (3 mirrors, 24 h cache) | chips: defibs, lifeboats, wrecks, bunkers, lighthouses, EV chargers, turbines, masts, water taps, toilets |
+| 📖 wikipedia | Wikipedia geosearch | nearby articles |
+| 🚨 street crime | police.uk | last published month, 1-mile area, category breakdown |
+| 🍽 food hygiene | Food Standards Agency | rating-coloured dots, average + lowest-rated callout |
+| 🦊 wildlife | iNaturalist | latest 50 verifiable observations, photo popups, research-grade flags |
+| 🏛 heritage | planning.data.gov.uk | chips: listed buildings, scheduled monuments, conservation areas, parks, ancient woodland; queried within 6 km (their spatial API crawls on bigger boxes), 24 h cache |
+| 🔵 blue plaques | openplaques.org CC0 harvest | `data/plaques.min.json` — 17,332 geolocated UK plaques, loaded only when toggled, nearest 200 mapped |
 
-## Notes / licensing
+## Architecture
 
-- adsb.lol is ODbL; adsb.fi and airplanes.live are free for non-commercial
-  use; OGN data is for non-commercial flight-following.
-- AISStream free tier carries attribution/usage strings, and allows **one
-  concurrent connection per key** — the 25 s response cache keeps the drain
-  cadence polite, but heavy multi-user traffic would need a persistent
-  collector instead.
+- **No build step.** Plain HTML/CSS/JS, Leaflet from CDN. Classic scripts
+  share top-level scope: `app.js` owns the map, vehicle feeds and weather;
+  `overlays.js` (IIFE) owns the ☰ menu and every other layer, reading
+  `map` / `here` / `radiusKm` etc. from `app.js`.
+- **`docs/` and `public/` are siblings, not source→build.** `overlays.js`,
+  `style.css` and `data/` are byte-identical copies; `app.js` differs only in
+  how vehicles are fetched (direct APIs vs `/api/*` functions). Keep them in
+  sync — see `CLAUDE.md`.
+- **Netlify functions** (`netlify/functions/`): `aircraft.js` (aggregator
+  fallback chain), `gliders.js` (OGN), `vessels.js` (AISStream drain +
+  history), `_normalize.js`, `_store.js` (Netlify Blobs cache seam).
+- **Normalised vehicle shape** everywhere:
+  `{ id, kind: 'air'|'sea', sub, lat, lon, alt /* m */, ground, heading,
+  speed /* kn */, name, reg, model, src, ts }`.
+- **Static harvests** in `data/`: `stations.min.json` (2,606 GB stations,
+  `[[crs, name, lat, lon], …]`) and `plaques.min.json`
+  (`[[id, lat, lon, text], …]`). Regeneration steps in `CLAUDE.md`.
+
+## Setup
+
+**GitHub Pages**: Settings → Pages → deploy from branch, `/docs` folder.
+Aircraft, gliders and every overlay work with zero configuration; boats need
+a free aisstream.io key entered via 🔑 (stored in localStorage only).
+
+**Netlify**: `npm i && npx netlify dev`, deploy with
+`npx netlify deploy --prod`. Env var: `AISSTREAM_API_KEY` (only for boats).
+
+## Licensing / usage notes
+
+- adsb.lol is ODbL; adsb.fi & airplanes.live free for non-commercial use;
+  OGN is non-commercial flight-following; AISStream free tier allows **one
+  concurrent connection per key**.
+- OpenStreetMap data © OSM contributors (ODbL); openplaques.org data CC0;
+  police.uk / EA / FSA / planning.data / UKPN under the Open Government
+  Licence; iNaturalist observations carry per-record licences.
+- Huxley is a community proxy for National Rail Darwin — fine for a personal
+  page, get a Rail Data Marketplace token before anything bigger.
 - All fine for an MVP; revisit before monetising.
