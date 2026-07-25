@@ -7,7 +7,8 @@
   const RAD = Math.PI / 180;
   const OV_KEY = 'overlays';
   const st = Object.assign(
-    { sat: false, marine: false, air: false, sun: false, quake: false },
+    { sat: false, marine: false, air: false, sun: false, quake: false,
+      gauges: false, carbon: false, infra: false, wiki: false, crime: false, food: false },
     JSON.parse(localStorage.getItem(OV_KEY) || '{}')
   );
   const save = () => localStorage.setItem(OV_KEY, JSON.stringify(st));
@@ -102,11 +103,22 @@
     <span id="layersWrap">
       <button id="layersBtn" type="button" title="More overlays">☰</button>
       <div id="layersMenu" hidden>
-        <label><input type="checkbox" data-l="sat"> 🛰 satellites overhead</label>
+        <div class="sec">sky</div>
+        <label><input type="checkbox" data-wx> 🌦 rain radar &amp; wind</label>
+        <label><input type="checkbox" data-l="sat"> 🛰 satellites</label>
+        <label><input type="checkbox" data-l="sun"> 🌗 sun, moon &amp; aurora</label>
+        <div class="sec">water</div>
         <label><input type="checkbox" data-l="marine"> 🌊 sea &amp; tides</label>
-        <label><input type="checkbox" data-l="air"> 🌿 air &amp; pollen</label>
-        <label><input type="checkbox" data-l="sun"> 🌗 sun &amp; moon</label>
+        <label><input type="checkbox" data-l="gauges"> 💧 rivers &amp; floods</label>
+        <div class="sec">ground</div>
+        <label><input type="checkbox" data-l="air"> 🌿 air, pollen &amp; UV</label>
+        <label><input type="checkbox" data-l="carbon"> ⚡ grid electricity</label>
         <label><input type="checkbox" data-l="quake"> 🌍 earthquakes</label>
+        <div class="sec">nearby</div>
+        <label><input type="checkbox" data-l="infra"> 🏗 infrastructure</label>
+        <label><input type="checkbox" data-l="wiki"> 📖 wikipedia</label>
+        <label><input type="checkbox" data-l="crime"> 🚨 street crime</label>
+        <label><input type="checkbox" data-l="food"> 🍽 food hygiene</label>
       </div>
     </span>`);
   const menu = document.getElementById('layersMenu');
@@ -126,6 +138,10 @@
     return el;
   }
   const dropCard = (id) => document.getElementById(id)?.remove();
+  const poiIcon = (emoji) => L.divIcon({
+    className: '', html: `<div class="poi">${emoji}</div>`, iconSize: [22, 22], iconAnchor: [11, 11],
+  });
+  const dLonKm = () => radiusKm / (111 * Math.cos(here.lat * RAD));
 
   /* ============ 1. satellites overhead ============ */
   // Default set: the ~180 naked-eye-bright objects + space stations. That is
@@ -137,6 +153,7 @@
   let satRecs = null, satGroup = null, satTracks = null, satTimer = null;
   let satAll = localStorage.getItem('sat_all') === '1';
   let satCand = null, satCandTs = 0; // near-horizon candidate cache for the big catalog
+  let satPasses = null, satPassTs = 0; // upcoming ISS/station pass predictions
   const satMarkers = new Map();
 
   const loadSatLib = () => window.satellite ? Promise.resolve() : new Promise((res, rej) => {
@@ -285,11 +302,21 @@
 
     // A satellite 20° up is hundreds of km away on the ground — its marker
     // is off-screen at ring zoom. The card is the primary UI; tap to fly out.
+    // upcoming station passes (ISS/Tiangong) — recompute every 30 min
+    if (!satPasses || Date.now() - satPassTs > 30 * 60 * 1000) {
+      satPasses = predictPasses();
+      satPassTs = Date.now();
+    }
+
     const LIST_N = 10;
     const rows = up.slice(0, LIST_N).map((o) =>
       `<div class="r satrow" data-sat="${o.id}"><span>🛰 ${H(o.name)}</span>` +
       `<span>${compass(o.az)} ${Math.round(o.elev)}°${o.visible ? ' 👁' : ''}</span></div>`);
     if (up.length > LIST_N) rows.push(`<div class="r"><span></span><span>+${up.length - LIST_N} more overhead</span></div>`);
+    for (const p of satPasses || []) {
+      rows.push(`<div class="r"><span>next ${H(p.name.split(' ')[0].split('(')[0])} pass</span>` +
+        `<span>${fmtT(p.start)} ${compass(p.startAz)}→${compass(p.endAz ?? p.startAz)} ${Math.round(p.maxEl)}°${p.visible ? ' 👁' : ''}</span></div>`);
+    }
     const el = card('ovc-sat');
     el.innerHTML =
       `<h4>🛰 ${up.length ? `${up.length} overhead` : 'satellites'} · tracking ${satRecs.length.toLocaleString()}</h4>` +
@@ -309,6 +336,40 @@
       satOff();
       if (st.sat) satOn();
     };
+  }
+
+  // minute-step forward search for ISS/Tiangong passes in the next 24 h
+  function predictPasses() {
+    if (!here || !satRecs || !window.satellite) return [];
+    const sat = window.satellite;
+    const targets = satRecs.filter((o) => /ISS \(ZARYA\)|TIANHE|TIANGONG|CSS/.test(o.name)).slice(0, 2);
+    const obs = { latitude: here.lat * RAD, longitude: here.lon * RAD, height: 0 };
+    const passes = [];
+    for (const { name, rec } of targets) {
+      let pass = null;
+      for (let m = 0; m <= 24 * 60; m++) {
+        const t = new Date(Date.now() + m * 60000);
+        let pv;
+        try { pv = sat.propagate(rec, t); } catch { break; }
+        if (!pv?.position) continue;
+        const la = sat.ecfToLookAngles(obs, sat.eciToEcf(pv.position, sat.gstime(t)));
+        const el = la.elevation / RAD;
+        if (el > 10) {
+          if (!pass) pass = { name, start: t, startAz: la.azimuth / RAD, maxEl: el, visible: false };
+          if (el > pass.maxEl) pass.maxEl = el;
+          const p = pv.position, s2 = sunEci(t), sm = Math.hypot(s2.x, s2.y, s2.z);
+          const dot = (p.x * s2.x + p.y * s2.y + p.z * s2.z) / sm;
+          const r2 = p.x * p.x + p.y * p.y + p.z * p.z;
+          const sunlit = dot > 0 || Math.sqrt(Math.max(0, r2 - dot * dot)) > 6371;
+          if (sunlit && sunPos(t, here.lat, here.lon).alt < -6) pass.visible = true;
+        } else if (pass) {
+          pass.endAz = la.azimuth / RAD;
+          passes.push(pass); pass = null;
+          if (passes.length >= 4) break;
+        }
+      }
+    }
+    return passes.sort((a, b) => a.start - b.start).slice(0, 3);
   }
 
   async function satOn() {
@@ -448,6 +509,20 @@
       }
       if (c.pm2_5 != null) rows.push(`<div class="r"><span>PM2.5</span><span>${c.pm2_5.toFixed(1)} µg/m³</span></div>`);
       if (c.uv_index != null) rows.push(`<div class="r"><span>UV</span><span>${c.uv_index.toFixed(1)} · ${UV_WORD(c.uv_index)}</span></div>`);
+      try {
+        const sr = await fetch(`https://data.sensor.community/airrohr/v1/filter/area=${here.lat.toFixed(3)},${here.lon.toFixed(3)},${Math.min(25, radiusKm)}`);
+        if (sr.ok) {
+          const sd = await sr.json();
+          const seen = new Set(), vals = [];
+          for (const s0 of sd) {
+            if (seen.has(s0.sensor?.id)) continue;
+            seen.add(s0.sensor?.id);
+            for (const v of s0.sensordatavalues || []) if (v.value_type === 'P2') vals.push(parseFloat(v.value));
+          }
+          if (vals.length) rows.push(`<div class="r"><span>citizen sensors (${seen.size})</span><span>PM2.5 ${(vals.reduce((x, y) => x + y, 0) / vals.length).toFixed(1)}</span></div>`);
+        }
+      } catch {}
+      if (!st.air) return;
       const pol = [
         ['grass', c.grass_pollen, 30, 60], ['birch', c.birch_pollen, 90, 180], ['ragweed', c.ragweed_pollen, 10, 50],
       ].filter(([, v]) => v != null && v > 0);
@@ -460,8 +535,21 @@
     airTimer = setInterval(airRefresh, 30 * 60 * 1000); }
   function airOff() { clearInterval(airTimer); airTimer = null; dropCard('ovc-air'); }
 
-  /* ============ 4. sun & moon (no API — astronomy math) ============ */
+  /* ============ 4. sun & moon (astronomy math) + aurora (NOAA SWPC) ===== */
   let sunTimer = null, sunRay = null, moonRay = null;
+  let kpVal = null, kpTs = 0;
+
+  async function kpRefresh() {
+    try {
+      const r = await fetch('https://services.swpc.noaa.gov/json/planetary_k_index_1m.json');
+      if (!r.ok) return;
+      const d = await r.json();
+      const last = d[d.length - 1];
+      kpVal = last?.estimated_kp ?? last?.kp_index ?? null;
+      kpTs = Date.now();
+      if (st.sun) sunRefresh();
+    } catch {}
+  }
 
   function sunRefresh() {
     if (!here) return;
@@ -484,6 +572,10 @@
     }
     rows.push(`<div class="r"><span>${phaseName(mi.phase)}</span><span>${Math.round(mi.fraction * 100)}% lit</span></div>`);
     rows.push(`<div class="r"><span>moon</span><span>${mp.alt > 0 ? `up · ${compass(mp.az)} · ${Math.round(mp.alt)}°` : 'below horizon'}</span></div>`);
+    if (kpVal != null) {
+      rows.push(`<div class="r${kpVal >= 5 ? ' warn' : ''}"><span>aurora</span>` +
+        `<span>${kpVal >= 6 ? 'likely — check N horizon!' : kpVal >= 5 ? 'possible' : 'quiet'} · Kp ${(+kpVal).toFixed(1)}</span></div>`);
+    }
     card('ovc-sun').innerHTML = '<h4>🌗 sun & moon</h4>' + rows.join('');
 
     // bearing rays from the search centre when the body is up
@@ -496,8 +588,14 @@
     sunRay = ray(sunRay, sp.alt, sp.az, '#ffcf4d', null);
     moonRay = ray(moonRay, mp.alt, mp.az, '#c9d4e4', '6 6');
   }
-  function sunOn() { sunRefresh(); clearInterval(sunTimer);
-    sunTimer = setInterval(sunRefresh, 60 * 1000); }
+  function sunOn() {
+    sunRefresh(); kpRefresh();
+    clearInterval(sunTimer);
+    sunTimer = setInterval(() => {
+      sunRefresh();
+      if (Date.now() - kpTs > 30 * 60 * 1000) kpRefresh();
+    }, 60 * 1000);
+  }
   function sunOff() {
     clearInterval(sunTimer); sunTimer = null;
     if (sunRay) { map.removeLayer(sunRay); sunRay = null; }
@@ -551,10 +649,301 @@
     quakeGroup?.clearLayers(); dropCard('ovc-quake');
   }
 
+
+  /* ============ 6. rivers & floods (Environment Agency, keyless) ========= */
+  let gaugeGroup = null, gaugeTimer = null;
+
+  async function gaugesRefresh() {
+    if (!here || !gaugeGroup) return;
+    try {
+      const base = 'https://environment.data.gov.uk/flood-monitoring';
+      const dist = Math.max(10, Math.round(radiusKm));
+      const q = `lat=${here.lat.toFixed(3)}&long=${here.lon.toFixed(3)}&dist=${dist}`;
+      const [stR, flR] = await Promise.all([
+        fetch(`${base}/id/stations?${q}&parameter=level`, { signal: AbortSignal.timeout(15000) }),
+        fetch(`${base}/id/floods?${q}`, { signal: AbortSignal.timeout(15000) }),
+      ]);
+      if (!st.gauges) return;
+      const stations = stR.ok ? (await stR.json()).items || [] : [];
+      const floods = flR.ok ? (await flR.json()).items || [] : [];
+      const near = stations
+        .filter((g) => g.lat && g.long)
+        .map((g) => ((g._d = KM(here, { lat: g.lat, lon: g.long })), g))
+        .sort((a, b) => a._d - b._d).slice(0, 8);
+      const readings = await Promise.all(near.slice(0, 5).map((g) =>
+        fetch(`${base}/id/stations/${encodeURIComponent(g.stationReference)}/readings?latest`)
+          .then((r) => (r.ok ? r.json() : null)).then((j) => j?.items?.[0]?.value).catch(() => null)));
+      if (!st.gauges) return;
+      gaugeGroup.clearLayers();
+      const rows = [];
+      near.forEach((g, i) => {
+        const lvl = i < 5 ? readings[i] : null;
+        const name = g.label || g.riverName || g.stationReference;
+        L.marker([g.lat, g.long], { icon: poiIcon('💧') }).bindPopup(
+          `<b>${H(name)}</b> <span class="sub">water gauge</span><br>` +
+          `${g.riverName ? H(g.riverName) + '<br>' : ''}` +
+          `${lvl != null ? `level ${(+lvl).toFixed(2)} m<br>` : ''}` +
+          `${g._d.toFixed(1)} km away<br>` +
+          `<span class="links"><a href="https://check-for-flooding.service.gov.uk/station/${encodeURIComponent(g.RLOIid || '')}" target="_blank" rel="noopener">history</a></span>`
+        ).addTo(gaugeGroup);
+        if (i < 3) rows.push(`<div class="r"><span>${H(String(name).slice(0, 17))}</span><span>${lvl != null ? (+lvl).toFixed(2) + ' m' : '—'}</span></div>`);
+      });
+      const warn = floods.slice(0, 2).map((f) =>
+        `<div class="r warn"><span>⚠ ${H((f.description || 'flood alert').slice(0, 22))}</span><span>${H(f.severity || '')}</span></div>`);
+      card('ovc-gauges').innerHTML = '<h4>💧 rivers & floods</h4>' +
+        (warn.length ? warn.join('') : '<div class="r"><span>flood alerts</span><span>none</span></div>') +
+        (rows.length ? rows.join('') : '<div>no gauges in range (England only)</div>');
+    } catch {}
+  }
+  function gaugesOn() {
+    gaugeGroup = gaugeGroup || L.layerGroup().addTo(map);
+    gaugesRefresh();
+    clearInterval(gaugeTimer);
+    gaugeTimer = setInterval(gaugesRefresh, 15 * 60 * 1000);
+  }
+  function gaugesOff() { clearInterval(gaugeTimer); gaugeTimer = null; gaugeGroup?.clearLayers(); dropCard('ovc-gauges'); }
+
+  /* ============ 7. grid electricity (carbonintensity.org.uk) ============= */
+  let carbonTimer = null;
+  const CI_COLORS = { 'very low': '#6fe3a1', low: '#c9e36f', moderate: '#f0e641', high: '#ffa050', 'very high': '#ff5050' };
+
+  async function carbonRefresh() {
+    if (!here) return;
+    try {
+      const pr = await fetch(`https://api.postcodes.io/outcodes?lon=${here.lon.toFixed(4)}&lat=${here.lat.toFixed(4)}&radius=25000`, { signal: AbortSignal.timeout(15000) });
+      const out = pr.ok ? (await pr.json()).result?.[0]?.outcode : null;
+      if (!st.carbon) return;
+      if (!out) {
+        card('ovc-carbon').innerHTML = '<h4>⚡ grid electricity</h4><div>GB only (no postcode nearby)</div>';
+        return;
+      }
+      const cr = await fetch(`https://api.carbonintensity.org.uk/regional/postcode/${encodeURIComponent(out)}`, { signal: AbortSignal.timeout(15000) });
+      if (!cr.ok || !st.carbon) return;
+      const d = (await cr.json()).data?.[0];
+      const cur = d?.data?.[0];
+      if (!cur || !st.carbon) return;
+      const mix = (cur.generationmix || []).filter((m) => m.perc > 0.5).sort((a, b) => b.perc - a.perc);
+      card('ovc-carbon').innerHTML = '<h4>⚡ grid electricity</h4>' +
+        `<div class="r"><span>carbon now</span><span class="aqi" style="background:${CI_COLORS[cur.intensity.index] || '#c9e36f'}">${cur.intensity.forecast} g · ${H(cur.intensity.index)}</span></div>` +
+        mix.slice(0, 4).map((m) => `<div class="r"><span>${H(m.fuel)}</span><span>${Math.round(m.perc)}%</span></div>`).join('') +
+        `<div class="r"><span class="src">${H(d.shortname)} region · ${H(out)}</span></div>`;
+    } catch {}
+  }
+  function carbonOn() { carbonRefresh(); clearInterval(carbonTimer); carbonTimer = setInterval(carbonRefresh, 30 * 60 * 1000); }
+  function carbonOff() { clearInterval(carbonTimer); carbonTimer = null; dropCard('ovc-carbon'); }
+
+  /* ============ 8. infrastructure (OpenStreetMap via Overpass) =========== */
+  const INFRA_CATS = {
+    defib:    { label: 'defibs',      emoji: '✚',  match: (t) => t.emergency === 'defibrillator',            q: 'node["emergency"="defibrillator"]' },
+    lifeboat: { label: 'lifeboats',   emoji: '🛟', match: (t) => /lifeboat_station|water_rescue/.test(t.emergency || ''), q: 'nwr["emergency"~"lifeboat_station|water_rescue"]' },
+    wreck:    { label: 'wrecks',      emoji: '⚓', match: (t) => t.historic === 'wreck',                     q: 'nwr["historic"="wreck"]' },
+    bunker:   { label: 'bunkers',     emoji: '🪖', match: (t) => /pillbox|bunker/.test(t.historic || '') || t.military === 'bunker', q: 'nwr["historic"~"pillbox|bunker"];nwr["military"="bunker"]' },
+    light:    { label: 'lighthouses', emoji: '💡', match: (t) => t.man_made === 'lighthouse',                q: 'nwr["man_made"="lighthouse"]' },
+    ev:       { label: 'EV charge',   emoji: '🔌', match: (t) => t.amenity === 'charging_station',           q: 'node["amenity"="charging_station"]' },
+    turbine:  { label: 'turbines',    emoji: '🌀', match: (t) => t['generator:source'] === 'wind',           q: 'node["generator:source"="wind"]' },
+    mast:     { label: 'masts',       emoji: '📡', match: (t) => /^(mast|communications_tower)$/.test(t.man_made || ''), q: 'node["man_made"~"^(mast|communications_tower)$"]' },
+    water:    { label: 'water taps',  emoji: '🚰', match: (t) => t.amenity === 'drinking_water',             q: 'node["amenity"="drinking_water"]' },
+    toilets:  { label: 'toilets',     emoji: '🚻', match: (t) => t.amenity === 'toilets',                    q: 'node["amenity"="toilets"]' },
+  };
+  const OP_MIRRORS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+  ];
+  let infraGroup = null, infraBusy = false;
+  const infraCats = () => {
+    try {
+      return JSON.parse(localStorage.getItem('infra_cats') || 'null') || ['defib', 'lifeboat', 'wreck', 'bunker', 'light'];
+    } catch { return ['defib']; }
+  };
+
+  function renderInfraCard(counts, note) {
+    const cats = infraCats();
+    const chips = Object.entries(INFRA_CATS).map(([k, c]) =>
+      `<span class="chip${cats.includes(k) ? ' on' : ''}" data-cat="${k}">${c.emoji} ${c.label}${counts && counts[k] ? ` · ${counts[k]}` : ''}</span>`).join('');
+    const el = card('ovc-infra');
+    el.innerHTML = `<h4>🏗 infrastructure</h4><div class="chips">${chips}</div>` +
+      (note ? `<div class="src">${H(note)}</div>` : '<div class="src">OpenStreetMap · tap chips to choose</div>');
+    el.onclick = (ev) => {
+      const chip = ev.target.closest('.chip');
+      if (!chip) return;
+      const k = chip.dataset.cat, cur = infraCats();
+      localStorage.setItem('infra_cats', JSON.stringify(cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
+      infraRefresh();
+    };
+  }
+
+  async function infraRefresh() {
+    if (!here || !infraGroup || infraBusy) return;
+    const cats = infraCats();
+    infraGroup.clearLayers();
+    if (!cats.length) { renderInfraCard(null, 'pick a category'); return; }
+    const b = `(${(here.lat - radiusKm / 111).toFixed(3)},${(here.lon - dLonKm()).toFixed(3)},${(here.lat + radiusKm / 111).toFixed(3)},${(here.lon + dLonKm()).toFixed(3)})`;
+    const sel = cats.flatMap((k) => INFRA_CATS[k].q.split(';')).map((q) => `${q}${b};`).join('');
+    const cacheKey = `op:${[...cats].sort().join('.')}:${here.lat.toFixed(2)}:${here.lon.toFixed(2)}:${radiusKm}`;
+    let data = null;
+    try {
+      const c = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+      if (c && Date.now() - c.ts < 24 * 3600 * 1000) data = c.d;
+    } catch {}
+    if (!data) {
+      infraBusy = true;
+      renderInfraCard(null, 'searching OpenStreetMap…');
+      for (const mirror of OP_MIRRORS) {
+        try {
+          const r = await fetch(mirror, {
+            method: 'POST',
+            body: 'data=' + encodeURIComponent(`[out:json][timeout:25];(${sel});out center 400;`),
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            signal: AbortSignal.timeout(30000),
+          });
+          if (r.ok) { data = await r.json(); break; }
+        } catch {}
+      }
+      infraBusy = false;
+      if (data) {
+        data = { elements: (data.elements || []).slice(0, 400) };
+        try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), d: data })); } catch {}
+      }
+    }
+    if (!st.infra) return;
+    if (!data) { renderInfraCard(null, 'OpenStreetMap busy — try again in a minute'); return; }
+    infraGroup.clearLayers();
+    const counts = {};
+    for (const el of data.elements || []) {
+      const t = el.tags || {};
+      const k = cats.find((c) => INFRA_CATS[c].match(t));
+      if (!k) continue;
+      counts[k] = (counts[k] || 0) + 1;
+      const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon;
+      if (lat == null) continue;
+      L.marker([lat, lon], { icon: poiIcon(INFRA_CATS[k].emoji) }).bindPopup(
+        `<b>${H(t.name || INFRA_CATS[k].label.replace(/s$/, ''))}</b> <span class="sub">${H(k)}</span><br>` +
+        [t.operator, t['addr:street'], t.description && t.description.slice(0, 90)].filter(Boolean).map(H).join('<br>') +
+        `<br><span class="links"><a href="https://www.openstreetmap.org/${el.type}/${el.id}" target="_blank" rel="noopener">OSM</a> · ` +
+        `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">directions</a></span>`
+      ).addTo(infraGroup);
+    }
+    renderInfraCard(counts);
+  }
+  function infraOn() { infraGroup = infraGroup || L.layerGroup().addTo(map); infraRefresh(); }
+  function infraOff() { infraGroup?.clearLayers(); dropCard('ovc-infra'); }
+
+  /* ============ 9. wikipedia nearby ====================================== */
+  let wikiGroup = null;
+
+  async function wikiRefresh() {
+    if (!here || !wikiGroup) return;
+    try {
+      const rad = Math.min(10000, radiusKm * 1000);
+      const r = await fetch('https://en.wikipedia.org/w/api.php?action=query&list=geosearch' +
+        `&gscoord=${here.lat.toFixed(4)}|${here.lon.toFixed(4)}&gsradius=${rad}&gslimit=40&format=json&origin=*`, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return;
+      const items = (await r.json()).query?.geosearch || [];
+      if (!st.wiki) return;
+      wikiGroup.clearLayers();
+      for (const it of items) {
+        L.marker([it.lat, it.lon], { icon: poiIcon('📖') }).bindPopup(
+          `<b>${H(it.title)}</b> <span class="sub">wikipedia</span><br>${(it.dist / 1000).toFixed(1)} km away<br>` +
+          `<span class="links"><a href="https://en.wikipedia.org/?curid=${it.pageid}" target="_blank" rel="noopener">read article</a></span>`
+        ).addTo(wikiGroup);
+      }
+    } catch {}
+  }
+  function wikiOn() { wikiGroup = wikiGroup || L.layerGroup().addTo(map); wikiRefresh(); }
+  function wikiOff() { wikiGroup?.clearLayers(); }
+
+  /* ============ 10. street crime (police.uk, last published month) ======= */
+  let crimeGroup = null;
+
+  async function crimeRefresh() {
+    if (!here || !crimeGroup) return;
+    try {
+      const r = await fetch(`https://data.police.uk/api/crimes-street/all-crime?lat=${here.lat.toFixed(4)}&lng=${here.lon.toFixed(4)}`,
+        { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) {
+        if (st.crime) {
+          card('ovc-crime').innerHTML = '<h4>🚨 street crime</h4><div>' +
+            (r.status >= 400 && r.status < 500 ? 'England &amp; Wales only' : 'feed unavailable — will retry') + '</div>';
+        }
+        return;
+      }
+      const items = await r.json();
+      if (!st.crime) return;
+      crimeGroup.clearLayers();
+      const byCat = {};
+      for (const c of items) byCat[c.category] = (byCat[c.category] || 0) + 1;
+      for (const c of items.slice(0, 150)) {
+        const la = parseFloat(c.location?.latitude), lo = parseFloat(c.location?.longitude);
+        if (!Number.isFinite(la)) continue;
+        L.circleMarker([la, lo], { radius: 4, color: '#fff', weight: 0.5, fillColor: '#ff5050', fillOpacity: 0.7 })
+          .bindPopup(
+            `<b>${H(c.category.replace(/-/g, ' '))}</b> <span class="sub">${H(c.month || '')}</span><br>` +
+            `${H(c.location?.street?.name || '')}<br>` +
+            `<span class="src">${H(c.outcome_status?.category || 'no outcome yet')}</span>`
+          ).addTo(crimeGroup);
+      }
+      const top = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      card('ovc-crime').innerHTML =
+        `<h4>🚨 street crime · ${items.length} in ${H(items[0]?.month || 'last month')}</h4>` +
+        (top.map(([k, n]) => `<div class="r"><span>${H(k.replace(/-/g, ' '))}</span><span>${n}</span></div>`).join('') ||
+          '<div>none reported</div>') +
+        '<div class="r"><span class="src">1-mile area · police.uk</span></div>';
+    } catch {}
+  }
+  function crimeOn() { crimeGroup = crimeGroup || L.layerGroup().addTo(map); crimeRefresh(); }
+  function crimeOff() { crimeGroup?.clearLayers(); dropCard('ovc-crime'); }
+
+  /* ============ 11. food hygiene (Food Standards Agency) ================= */
+  let foodGroup = null;
+  const FHRS_COLORS = { 5: '#6fe3a1', 4: '#c9e36f', 3: '#f0e641', 2: '#ffa050', 1: '#ff5050', 0: '#ff5050' };
+
+  async function foodRefresh() {
+    if (!here || !foodGroup) return;
+    try {
+      const miles = Math.max(1, Math.min(5, Math.round(radiusKm / 1.609)));
+      const r = await fetch('https://api.ratings.food.gov.uk/Establishments' +
+        `?latitude=${here.lat.toFixed(4)}&longitude=${here.lon.toFixed(4)}&maxDistanceLimit=${miles}&sortOptionKey=distance&pageSize=150`,
+        { headers: { 'x-api-version': '2' }, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return;
+      const items = (await r.json()).establishments || [];
+      if (!st.food) return;
+      foodGroup.clearLayers();
+      let rated = 0, sum = 0, worst = null;
+      for (const e of items) {
+        const la = parseFloat(e.geocode?.latitude), lo = parseFloat(e.geocode?.longitude);
+        const rv = parseInt(e.RatingValue, 10);
+        if (Number.isFinite(rv)) {
+          rated++; sum += rv;
+          if (!worst || rv < worst.rv) worst = { rv, name: e.BusinessName };
+        }
+        if (!Number.isFinite(la)) continue;
+        L.circleMarker([la, lo], {
+          radius: 5, color: '#111', weight: 0.5,
+          fillColor: Number.isFinite(rv) ? FHRS_COLORS[rv] : '#9aa7b8', fillOpacity: 0.9,
+        }).bindPopup(
+          `<b>${H(e.BusinessName)}</b> <span class="sub">${H(e.BusinessType || '')}</span><br>` +
+          `hygiene rating: <b>${H(e.RatingValue)}</b>${e.RatingDate ? ' · ' + H(String(e.RatingDate).slice(0, 10)) : ''}<br>` +
+          `<span class="links"><a href="https://ratings.food.gov.uk/business/${e.FHRSID}" target="_blank" rel="noopener">full report</a></span>`
+        ).addTo(foodGroup);
+      }
+      card('ovc-food').innerHTML =
+        `<h4>🍽 food hygiene · ${items.length} nearby</h4>` +
+        (rated ? `<div class="r"><span>average rating</span><span>${(sum / rated).toFixed(1)} / 5</span></div>` : '') +
+        (worst && worst.rv <= 2 ? `<div class="r warn"><span>lowest: ${H(String(worst.name).slice(0, 18))}</span><span>${worst.rv} ★</span></div>` : '') +
+        '<div class="r"><span class="src">Food Standards Agency</span></div>';
+    } catch {}
+  }
+  function foodOn() { foodGroup = foodGroup || L.layerGroup().addTo(map); foodRefresh(); }
+  function foodOff() { foodGroup?.clearLayers(); dropCard('ovc-food'); }
+
   /* ============ toggle engine ============ */
   const LAYERS = {
     sat: [satOn, satOff], marine: [marineOn, marineOff], air: [airOn, airOff],
     sun: [sunOn, sunOff], quake: [quakeOn, quakeOff],
+    gauges: [gaugesOn, gaugesOff], carbon: [carbonOn, carbonOff],
+    infra: [infraOn, infraOff], wiki: [wikiOn, wikiOff],
+    crime: [crimeOn, crimeOff], food: [foodOn, foodOff],
   };
 
   const started = {};
@@ -566,6 +955,14 @@
     st[k] = on; save();
     (on ? start : stop)(k);
   }
+
+  // weather lives in app.js — the menu row just drives its setWeather()
+  const wxCb = menu.querySelector('input[data-wx]');
+  wxCb.checked = wxOn;
+  wxCb.addEventListener('change', () => {
+    setWeather(wxCb.checked);
+    if (window.innerWidth <= 640) menu.hidden = true;
+  });
 
   menu.querySelectorAll('input[data-l]').forEach((cb) => {
     cb.checked = st[cb.dataset.l];
@@ -601,11 +998,17 @@
     if (first) {
       for (const k of Object.keys(LAYERS)) if (st[k]) start(k);
     } else {
-      satCand = null; // candidate cache is location-specific
+      satCand = null; satPasses = null; // both are location-specific
       if (st.marine) marineRefresh();
       if (st.air) airRefresh();
       if (st.sun) sunRefresh();
       if (st.quake) quakeRefresh();
+      if (st.gauges) gaugesRefresh();
+      if (st.carbon) carbonRefresh();
+      if (st.infra) infraRefresh();
+      if (st.wiki) wikiRefresh();
+      if (st.crime) crimeRefresh();
+      if (st.food) foodRefresh();
     }
   }, 3000);
 })();

@@ -53,20 +53,32 @@ Normalised shape returned by all functions:
 `balloon`, `boat`, …) and `src` names the feed (`ADS-B`, `MLAT (inferred)`,
 `OGN/FLARM`, `AIS`).
 
-## Optional overlays (☰ in the HUD, all keyless, remembered per browser)
+## Optional overlays (☰ menu, all keyless, remembered per browser)
 
-- **🛰 satellites overhead** — CelesTrak TLEs propagated in-browser with
-  satellite.js every 5 s; lists everything above 20° elevation with look
-  direction, flags "sunlit in a dark sky — look up", Earth-shadow test
-  included. Tap a row to fly to the sub-satellite point.
-- **🌊 sea state** — Open-Meteo Marine: wave height/period + sea surface
-  temperature pills at the ring points that are actually wet.
-- **🌿 air & pollen** — Open-Meteo Air Quality: European AQI, PM2.5, UV and
-  grass/birch/ragweed pollen as a corner card.
-- **🌗 sun & moon** — no API, pure astronomy math: sunset/sunrise countdown,
-  golden hour, moon phase/illumination, plus bearing rays on the map when
-  either body is up.
-- **🌍 earthquakes** — USGS last-24 h feed within max(500 km, 10× ring).
+Grouped **sky / water / ground / nearby**; each is a card in the dock
+(swipeable strip under the toolbar on mobile) plus markers where relevant.
+
+- **🌦 rain radar & wind** — RainViewer tiles + Open-Meteo wind/temp pills.
+- **🛰 satellites** — CelesTrak TLEs propagated in-browser (satellite.js):
+  overhead list with look direction and 👁 naked-eye flag (Earth-shadow
+  test), ground tracks, bearing rays from the pin, next ISS/Tiangong pass
+  predictions, and an opt-in full 16k-object active catalog.
+- **🌗 sun, moon & aurora** — astronomy math (no API) + NOAA SWPC Kp index.
+- **🌊 sea & tides** — Open-Meteo Marine: waves, sea temperature, and next
+  high/low water derived from the hourly sea-level series.
+- **💧 rivers & floods** — Environment Agency: live gauge levels + flood
+  alerts (England).
+- **🌿 air, pollen & UV** — Open-Meteo AQ + Sensor.Community citizen PM2.5.
+- **⚡ grid electricity** — carbonintensity.org.uk via postcodes.io reverse
+  geocode: live regional carbon + generation mix (GB).
+- **🌍 earthquakes** — USGS last-24 h within max(500 km, 10× ring).
+- **🏗 infrastructure** — OpenStreetMap via Overpass (mirror fallback,
+  24 h cache): defibs, lifeboats, wrecks, bunkers/pillboxes, lighthouses,
+  EV chargers, turbines, masts, water taps, toilets — pick categories by
+  tapping chips on the card.
+- **📖 wikipedia** — nearby articles (geosearch).
+- **🚨 street crime** — police.uk, last published month, 1-mile area.
+- **🍽 food hygiene** — Food Standards Agency ratings, colour-coded dots.
 
 ## Environment variables
 
