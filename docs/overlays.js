@@ -103,7 +103,7 @@
       <button id="layersBtn" type="button" title="More overlays">☰</button>
       <div id="layersMenu" hidden>
         <label><input type="checkbox" data-l="sat"> 🛰 satellites overhead</label>
-        <label><input type="checkbox" data-l="marine"> 🌊 sea state</label>
+        <label><input type="checkbox" data-l="marine"> 🌊 sea &amp; tides</label>
         <label><input type="checkbox" data-l="air"> 🌿 air &amp; pollen</label>
         <label><input type="checkbox" data-l="sun"> 🌗 sun &amp; moon</label>
         <label><input type="checkbox" data-l="quake"> 🌍 earthquakes</label>
@@ -128,8 +128,15 @@
   const dropCard = (id) => document.getElementById(id)?.remove();
 
   /* ============ 1. satellites overhead ============ */
+  // Default set: the ~180 naked-eye-bright objects + space stations. That is
+  // deliberate — of ~10k active satellites only these are worth looking up
+  // for. "include Starlink & co" opts into the full CelesTrak active catalog
+  // (heavier: ~2 MB of TLEs, propagated every 10 s instead of 5 s).
   const SAT_ELEV_DEG = 20;
-  let satRecs = null, satGroup = null, satTimer = null;
+  const SAT_MAX_MARKERS = 40;
+  let satRecs = null, satGroup = null, satTracks = null, satTimer = null;
+  let satAll = localStorage.getItem('sat_all') === '1';
+  let satCand = null, satCandTs = 0; // near-horizon candidate cache for the big catalog
   const satMarkers = new Map();
 
   const loadSatLib = () => window.satellite ? Promise.resolve() : new Promise((res, rej) => {
@@ -140,13 +147,14 @@
   });
 
   async function loadTles() {
-    const KEY = 'tle_cache';
+    const groups = satAll ? ['active'] : ['visual', 'stations'];
+    const KEY = `tle_cache_${groups.join('_')}`;
     try {
       const c = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (c && Date.now() - c.ts < 6 * 3600 * 1000) return c.text;
     } catch {}
     let text = '';
-    for (const grp of ['visual', 'stations']) {
+    for (const grp of groups) {
       const r = await fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${grp}&FORMAT=tle`);
       if (r.ok) text += await r.text() + '\n';
     }
@@ -178,6 +186,16 @@
     iconSize: [20, 20], iconAnchor: [10, 10],
   });
 
+  // ground point of a satellite at time t
+  function satGround(sat, rec, t) {
+    try {
+      const pv = sat.propagate(rec, t);
+      if (!pv?.position) return null;
+      const gd = sat.eciToGeodetic(pv.position, sat.gstime(t));
+      return [sat.degreesLat(gd.latitude), sat.degreesLong(gd.longitude)];
+    } catch { return null; }
+  }
+
   function satTick() {
     if (!here || !satRecs || !window.satellite) return;
     const sat = window.satellite, now = new Date(), gmst = sat.gstime(now);
@@ -185,8 +203,26 @@
     const s = sunEci(now), smag = Math.hypot(s.x, s.y, s.z);
     const sh = { x: s.x / smag, y: s.y / smag, z: s.z / smag };
     const darkHere = sunPos(now, here.lat, here.lon).alt < -6;
-    const fresh = new Set();
-    for (const { name, rec } of satRecs) {
+
+    // 16k-object catalog: sweep everything only once a minute (elev > 5°),
+    // then propagate just those candidates on the fast tick
+    let pool = satRecs;
+    if (satAll && satRecs.length > 2000) {
+      if (!satCand || now.valueOf() - satCandTs > 60000) {
+        satCand = satRecs.filter(({ rec }) => {
+          try {
+            const pv = sat.propagate(rec, now);
+            if (!pv?.position) return false;
+            return sat.ecfToLookAngles(obs, sat.eciToEcf(pv.position, gmst)).elevation > 5 * RAD;
+          } catch { return false; }
+        });
+        satCandTs = now.valueOf();
+      }
+      pool = satCand;
+    }
+
+    const up = [];
+    for (const { name, rec } of pool) {
       let pv;
       try { pv = sat.propagate(rec, now); } catch { continue; }
       if (!pv?.position) continue;
@@ -196,20 +232,43 @@
       const p = pv.position, dot = p.x * sh.x + p.y * sh.y + p.z * sh.z;
       const r2 = p.x * p.x + p.y * p.y + p.z * p.z;
       const sunlit = dot > 0 || Math.sqrt(Math.max(0, r2 - dot * dot)) > 6371;
-      const visible = sunlit && darkHere;
-      const id = String(rec.satnum);
-      const ll = [sat.degreesLat(gd.latitude), sat.degreesLong(gd.longitude)];
+      up.push({
+        id: String(rec.satnum), name, rec,
+        ll: [sat.degreesLat(gd.latitude), sat.degreesLong(gd.longitude)],
+        alt: gd.height, speed: Math.hypot(pv.velocity.x, pv.velocity.y, pv.velocity.z),
+        elev: la.elevation / RAD, az: la.azimuth / RAD,
+        visible: sunlit && darkHere, sunlit,
+      });
+    }
+    up.sort((a, b) => b.elev - a.elev);
+
+    // markers + ground tracks (−5 to +10 min) for the highest few
+    const shown = up.slice(0, SAT_MAX_MARKERS);
+    const fresh = new Set();
+    satTracks.clearLayers();
+    for (const o of shown) {
       const popup =
-        `<b>${H(name)}</b> <span class="sub">satellite</span><br>` +
-        `${Math.round(gd.height)} km up · ${Math.hypot(pv.velocity.x, pv.velocity.y, pv.velocity.z).toFixed(1)} km/s<br>` +
-        `elev ${Math.round(la.elevation / RAD)}° · look ${compass(la.azimuth / RAD)}<br>` +
-        (visible ? '👁 sunlit in a dark sky — look up!' : sunlit ? 'sunlit, but your sky is too bright' : 'in Earth\'s shadow') + '<br>' +
-        `<span class="links"><a href="https://www.n2yo.com/satellite/?s=${id}" target="_blank" rel="noopener">n2yo</a> · ` +
-        `<a href="https://heavens-above.com/satinfo.aspx?satid=${id}" target="_blank" rel="noopener">heavens-above</a></span>`;
-      const m = satMarkers.get(id);
-      if (m) m.setLatLng(ll).setIcon(satIcon(visible)).bindPopup(popup);
-      else satMarkers.set(id, L.marker(ll, { icon: satIcon(visible) }).bindPopup(popup).addTo(satGroup));
-      fresh.add(id);
+        `<b>${H(o.name)}</b> <span class="sub">satellite</span><br>` +
+        `${Math.round(o.alt)} km up · ${o.speed.toFixed(1)} km/s<br>` +
+        `elev ${Math.round(o.elev)}° · look ${compass(o.az)}<br>` +
+        (o.visible ? '👁 sunlit in a dark sky — look up!' : o.sunlit ? 'sunlit, but your sky is too bright' : 'in Earth\'s shadow') + '<br>' +
+        `<span class="links"><a href="https://www.n2yo.com/satellite/?s=${o.id}" target="_blank" rel="noopener">n2yo</a> · ` +
+        `<a href="https://heavens-above.com/satinfo.aspx?satid=${o.id}" target="_blank" rel="noopener">heavens-above</a></span>`;
+      const m = satMarkers.get(o.id);
+      if (m) m.setLatLng(o.ll).setIcon(satIcon(o.visible)).bindPopup(popup);
+      else satMarkers.set(o.id, L.marker(o.ll, { icon: satIcon(o.visible) }).bindPopup(popup).addTo(satGroup));
+      fresh.add(o.id);
+      const pts = [];
+      for (let dt = -5; dt <= 10; dt++) {
+        const g = satGround(sat, o.rec, new Date(now.valueOf() + dt * 60000));
+        if (g) pts.push(g);
+      }
+      if (pts.length > 1) {
+        L.polyline(pts, {
+          color: o.visible ? '#ffd35e' : '#8fa3bd', weight: 1.5, opacity: 0.55,
+          dashArray: '4 6', interactive: false,
+        }).addTo(satTracks);
+      }
     }
     for (const [id, m] of satMarkers) {
       if (!fresh.has(id)) { satGroup.removeLayer(m); satMarkers.delete(id); }
@@ -217,39 +276,50 @@
 
     // A satellite 20° up is hundreds of km away on the ground — its marker
     // is off-screen at ring zoom. The card is the primary UI; tap to fly out.
-    const rows = [...fresh].map((id) => {
-      const m = satMarkers.get(id);
-      const t = m.getPopup().getContent();
-      const name = t.match(/<b>(.*?)<\/b>/)[1];
-      const look = t.match(/elev (\d+)° · look (\w+)/) || [];
-      const vis = t.includes('look up!');
-      return `<div class="r satrow" data-sat="${id}"><span>🛰 ${name}</span>` +
-        `<span>${look[2] || ''} ${look[1] || ''}°${vis ? ' 👁' : ''}</span></div>`;
-    });
+    const LIST_N = 10;
+    const rows = up.slice(0, LIST_N).map((o) =>
+      `<div class="r satrow" data-sat="${o.id}"><span>🛰 ${H(o.name)}</span>` +
+      `<span>${compass(o.az)} ${Math.round(o.elev)}°${o.visible ? ' 👁' : ''}</span></div>`);
+    if (up.length > LIST_N) rows.push(`<div class="r"><span></span><span>+${up.length - LIST_N} more overhead</span></div>`);
     const el = card('ovc-sat');
-    el.innerHTML = '<h4>🛰 satellites overhead</h4>' +
-      (rows.length ? rows.join('') : `<div>none above ${SAT_ELEV_DEG}° right now</div>`);
+    el.innerHTML =
+      `<h4>🛰 ${up.length ? `${up.length} overhead` : 'satellites'} · tracking ${satRecs.length.toLocaleString()}</h4>` +
+      (rows.length ? rows.join('') : `<div>none above ${SAT_ELEV_DEG}° right now</div>`) +
+      `<label class="r satall"><span>include Starlink &amp; co (heavy)</span>` +
+      `<input type="checkbox" id="satAllCb"${satAll ? ' checked' : ''}></label>`;
     el.onclick = (ev) => {
       const row = ev.target.closest('.satrow');
       const m = row && satMarkers.get(row.dataset.sat);
       if (m) { map.flyTo(m.getLatLng(), 7); m.openPopup(); }
     };
+    el.onchange = (ev) => {
+      if (ev.target.id !== 'satAllCb') return;
+      satAll = ev.target.checked;
+      localStorage.setItem('sat_all', satAll ? '1' : '0');
+      satRecs = null; satCand = null;
+      satOff();
+      if (st.sat) satOn();
+    };
   }
 
   async function satOn() {
     satGroup = satGroup || L.layerGroup().addTo(map);
+    satTracks = satTracks || L.layerGroup().addTo(map);
+    card('ovc-sat').innerHTML = '<h4>🛰 satellites</h4><div>loading orbits…</div>';
     try {
       await loadSatLib();
       satRecs = satRecs || parseTles(await loadTles());
       satTick();
-      satTimer = setInterval(satTick, 5000);
+      // the full active catalog is ~11k objects — tick slower to stay smooth
+      satTimer = setInterval(satTick, satAll ? 10000 : 5000);
     } catch (err) {
-      card('ovc-sat').innerHTML = `<h4>satellites</h4><div>${H(err.message)}</div>`;
+      card('ovc-sat').innerHTML = `<h4>🛰 satellites</h4><div>${H(err.message)}</div>`;
     }
   }
   function satOff() {
     clearInterval(satTimer); satTimer = null;
-    satMarkers.clear(); satGroup?.clearLayers(); dropCard('ovc-sat');
+    satMarkers.clear(); satGroup?.clearLayers(); satTracks?.clearLayers();
+    dropCard('ovc-sat');
   }
 
   /* ============ 2. sea state (Open-Meteo Marine) ============ */
@@ -264,17 +334,18 @@
       const url = 'https://marine-api.open-meteo.com/v1/marine' +
         `?latitude=${pts.map((p) => p[0].toFixed(3)).join(',')}` +
         `&longitude=${pts.map((p) => p[1].toFixed(3)).join(',')}` +
-        '&current=wave_height,wave_direction,wave_period,sea_surface_temperature&timezone=UTC';
+        '&current=wave_height,wave_direction,wave_period,sea_surface_temperature' +
+        '&hourly=sea_level_height_msl&forecast_days=2&timezone=UTC';
       const r = await fetch(url);
       if (!r.ok) return;
       let d = await r.json();
       if (!Array.isArray(d)) d = [d];
       marineGroup.clearLayers();
-      let best = null;
+      let best = null, bestHourly = null;
       d.forEach((f, i) => {
         const c = f.current;
         if (!c || c.wave_height == null || !pts[i]) return;
-        if (!best) best = c;
+        if (!best) { best = c; bestHourly = f.hourly; }
         const bits = [`${c.wave_height.toFixed(1)}<small>m</small>`];
         if (c.wave_period != null) bits.push(`${Math.round(c.wave_period)}<small>s</small>`);
         if (c.sea_surface_temperature != null) bits.push(`${Math.round(c.sea_surface_temperature)}<small>°C</small>`);
@@ -294,12 +365,40 @@
         const rows = [`<div class="r"><span>waves</span><span>${best.wave_height.toFixed(1)} m${best.wave_period != null ? ` · ${Math.round(best.wave_period)} s` : ''}</span></div>`];
         if (best.wave_direction != null) rows.push(`<div class="r"><span>from</span><span>${compass(best.wave_direction)}</span></div>`);
         if (best.sea_surface_temperature != null) rows.push(`<div class="r"><span>sea temp</span><span>${best.sea_surface_temperature.toFixed(1)} °C</span></div>`);
-        card('ovc-marine').innerHTML = '<h4>🌊 sea state</h4>' + rows.join('');
+        for (const t of nextTides(bestHourly)) {
+          rows.push(`<div class="r"><span>${t.kind === 'high' ? '▲ high tide' : '▽ low tide'}</span>` +
+            `<span>${fmtT(t.when)} · ${t.h.toFixed(1)} m</span></div>`);
+        }
+        card('ovc-marine').innerHTML = '<h4>🌊 sea & tides</h4>' + rows.join('');
       } else {
-        card('ovc-marine').innerHTML = '<h4>🌊 sea state</h4><div>no sea within the ring</div>';
+        card('ovc-marine').innerHTML = '<h4>🌊 sea & tides</h4><div>no sea within the ring</div>';
       }
     } catch {}
   }
+  // Next high/low water from the hourly sea-level series: local extrema,
+  // refined with a parabolic fit through the three surrounding hours.
+  function nextTides(hourly) {
+    const ts = hourly?.time, hs = hourly?.sea_level_height_msl;
+    if (!ts || !hs) return [];
+    const now = Date.now(), out = [];
+    for (let i = 1; i < hs.length - 1 && out.length < 4; i++) {
+      const [a, b, c] = [hs[i - 1], hs[i], hs[i + 1]];
+      if (a == null || b == null || c == null) continue;
+      const isMax = b >= a && b > c, isMin = b <= a && b < c;
+      if (!isMax && !isMin) continue;
+      const denom = a - 2 * b + c;
+      const off = denom ? Math.max(-1, Math.min(1, 0.5 * (a - c) / denom)) : 0;
+      const when = new Date(Date.parse(ts[i] + 'Z') + off * 3600000);
+      if (when.valueOf() < now) continue;
+      const h = b - 0.25 * (a - c) * off;
+      // keep the first upcoming high and the first upcoming low
+      if (!out.some((o) => o.kind === (isMax ? 'high' : 'low'))) {
+        out.push({ kind: isMax ? 'high' : 'low', when, h });
+      }
+    }
+    return out.sort((x, y) => x.when - y.when);
+  }
+
   function marineOn() {
     marineGroup = marineGroup || L.layerGroup().addTo(map);
     marineRefresh();
@@ -481,6 +580,7 @@
     if (first) {
       for (const k of Object.keys(LAYERS)) if (st[k]) LAYERS[k][0]();
     } else {
+      satCand = null; // candidate cache is location-specific
       if (st.marine) marineRefresh();
       if (st.air) airRefresh();
       if (st.sun) sunRefresh();

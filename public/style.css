@@ -98,6 +98,7 @@ html, body, #map { height: 100%; margin: 0; }
 .satic svg { display: block; fill: #d5dde8; filter: drop-shadow(0 0 1.5px rgba(0,0,0,.8)); }
 .satic.vis svg { fill: #ffd35e; filter: drop-shadow(0 0 4px rgba(255,211,94,.9)); }
 .ovcard .satrow { cursor: pointer; }
+.ovcard .satall { margin-top: 5px; opacity: .85; cursor: pointer; border-top: 1px solid rgba(255,255,255,.12); padding-top: 5px; }
 
 /* mobile layout: menu becomes a sheet, cards a swipeable strip under the HUD */
 @media (max-width: 640px) {
