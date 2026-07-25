@@ -82,6 +82,19 @@ the dock
 - **📖 wikipedia** — nearby articles (geosearch).
 - **🚨 street crime** — police.uk, last published month, 1-mile area.
 - **🍽 food hygiene** — Food Standards Agency ratings, colour-coded dots.
+- **🚉 train departures** — live boards for your 3 nearest stations via the
+  Huxley community Darwin proxy; station coordinates are a static harvest
+  (`data/stations.min.json`, 2,606 stations).
+- **🦊 wildlife** — iNaturalist: latest 50 verifiable observations in the
+  ring, with photos and research-grade flags.
+- **🔌 power cuts** — UK Power Networks live faults (London/SE/East):
+  active/planned/restored with restoration estimates.
+- **🏛 heritage** — planning.data.gov.uk: listed buildings, scheduled
+  monuments, conservation areas, parks, ancient woodland (chips; queried
+  within 6 km — their spatial API crawls on bigger envelopes).
+- **🔵 blue plaques** — openplaques.org CC0 dump harvested to
+  `data/plaques.min.json` (17,332 geolocated UK plaques, ~1 MB, loaded
+  only when toggled).
 
 ## Environment variables
 

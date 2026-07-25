@@ -8,7 +8,8 @@
   const OV_KEY = 'overlays';
   const st = Object.assign(
     { sat: false, marine: false, air: false, sun: false, quake: false,
-      gauges: false, carbon: false, infra: false, wiki: false, crime: false, food: false },
+      gauges: false, carbon: false, infra: false, wiki: false, crime: false, food: false,
+      trains: false, wildlife: false, power: false, heritage: false, plaques: false },
     JSON.parse(localStorage.getItem(OV_KEY) || '{}')
   );
   const save = () => localStorage.setItem(OV_KEY, JSON.stringify(st));
@@ -107,6 +108,7 @@
         <label><input type="checkbox" data-v="air"> ✈️ aircraft</label>
         <label><input type="checkbox" data-v="ogn"> 🪂 gliders &amp; FLARM</label>
         <label><input type="checkbox" data-v="sea"> 🚢 boats (AIS)</label>
+        <label><input type="checkbox" data-l="trains"> 🚉 train departures</label>
         <div class="sec">sky</div>
         <label><input type="checkbox" data-wx> 🌦 rain radar &amp; wind</label>
         <label><input type="checkbox" data-l="sat"> 🛰 satellites</label>
@@ -118,11 +120,15 @@
         <label><input type="checkbox" data-l="air"> 🌿 air, pollen &amp; UV</label>
         <label><input type="checkbox" data-l="carbon"> ⚡ grid electricity</label>
         <label><input type="checkbox" data-l="quake"> 🌍 earthquakes</label>
+        <label><input type="checkbox" data-l="power"> 🔌 power cuts</label>
         <div class="sec">nearby</div>
         <label><input type="checkbox" data-l="infra"> 🏗 infrastructure</label>
         <label><input type="checkbox" data-l="wiki"> 📖 wikipedia</label>
         <label><input type="checkbox" data-l="crime"> 🚨 street crime</label>
         <label><input type="checkbox" data-l="food"> 🍽 food hygiene</label>
+        <label><input type="checkbox" data-l="wildlife"> 🦊 wildlife</label>
+        <label><input type="checkbox" data-l="heritage"> 🏛 heritage</label>
+        <label><input type="checkbox" data-l="plaques"> 🔵 blue plaques</label>
       </div>
     </span>`);
   const menu = document.getElementById('layersMenu');
@@ -941,6 +947,264 @@
   function foodOn() { foodGroup = foodGroup || L.layerGroup().addTo(map); foodRefresh(); }
   function foodOff() { foodGroup?.clearLayers(); dropCard('ovc-food'); }
 
+
+  /* ============ 12. train departures (Huxley community Darwin proxy) ===== */
+  // Station coordinates are a static harvest (data/stations.min.json).
+  // Huxley's public demo instance is keyless but community-run — errors are
+  // reported softly and never break the layer.
+  let stationList = null, trainGroup = null, trainTimer = null;
+
+  async function trainsRefresh() {
+    if (!here || !trainGroup) return;
+    try {
+      if (!stationList) {
+        const r = await fetch('data/stations.min.json');
+        stationList = await r.json();
+      }
+      const near = stationList
+        .map(([crs, name, lat, lon]) => ({ crs, name, lat, lon, d: KM(here, { lat, lon }) }))
+        .filter((x) => x.d <= Math.max(30, radiusKm))
+        .sort((a, b) => a.d - b.d).slice(0, 3);
+      if (!st.trains) return;
+      if (!near.length) {
+        card('ovc-trains').innerHTML = '<h4>🚉 trains</h4><div>no stations within range</div>';
+        trainGroup.clearLayers();
+        return;
+      }
+      const boards = await Promise.all(near.map((x) =>
+        fetch(`https://huxley2.azurewebsites.net/departures/${x.crs}/5`, { signal: AbortSignal.timeout(15000) })
+          .then((r) => (r.ok ? r.json() : null)).catch(() => null)));
+      if (!st.trains) return;
+      trainGroup.clearLayers();
+      const fmtSvc = (t) =>
+        `${H(t.std || '')} ${H(t.destination?.[0]?.locationName || '')}` +
+        `${t.platform ? ` · P${H(t.platform)}` : ''} · ` +
+        `<i>${t.isCancelled ? 'cancelled' : H(t.etd || '')}</i>`;
+      near.forEach((x, i) => {
+        const svcs = boards[i]?.trainServices || [];
+        L.marker([x.lat, x.lon], { icon: poiIcon('🚉') }).bindPopup(
+          `<b>${H(x.name)}</b> <span class="sub">${x.d.toFixed(1)} km</span><br>` +
+          (svcs.slice(0, 5).map(fmtSvc).join('<br>') || 'no departures listed') +
+          `<br><span class="links"><a href="https://www.realtimetrains.co.uk/search/simple/gb-nr:${x.crs}" target="_blank" rel="noopener">RealTimeTrains</a></span>`
+        ).addTo(trainGroup);
+      });
+      const main = near[0], mainSvcs = boards[0]?.trainServices || [];
+      card('ovc-trains').innerHTML =
+        `<h4>🚉 ${H(main.name)} · ${main.d.toFixed(1)} km</h4>` +
+        (mainSvcs.slice(0, 5).map((t) => `<div class="r"><span>${H(t.std || '')} ${H((t.destination?.[0]?.locationName || '').slice(0, 15))}</span>` +
+          `<span>${t.isCancelled ? '✖' : H(t.etd || '')}${t.platform ? ` · P${H(t.platform)}` : ''}</span></div>`).join('') ||
+          (boards[0] ? '<div>no departures listed</div>' : '<div>departure board busy — will retry</div>')) +
+        (near.length > 1 ? `<div class="r"><span class="src">also: ${near.slice(1).map((x) => H(x.name)).join(' · ')}</span></div>` : '');
+    } catch {}
+  }
+  function trainsOn() {
+    trainGroup = trainGroup || L.layerGroup().addTo(map);
+    trainsRefresh();
+    clearInterval(trainTimer);
+    trainTimer = setInterval(trainsRefresh, 2 * 60 * 1000);
+  }
+  function trainsOff() { clearInterval(trainTimer); trainTimer = null; trainGroup?.clearLayers(); dropCard('ovc-trains'); }
+
+  /* ============ 13. wildlife (iNaturalist) =============================== */
+  let wildGroup = null, wildTimer = null;
+
+  async function wildlifeRefresh() {
+    if (!here || !wildGroup) return;
+    try {
+      const r = await fetch('https://api.inaturalist.org/v1/observations' +
+        `?lat=${here.lat.toFixed(4)}&lng=${here.lon.toFixed(4)}&radius=${Math.min(50, radiusKm)}` +
+        '&order=desc&order_by=observed_on&per_page=50&verifiable=true&photos=true',
+        { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!st.wildlife) return;
+      wildGroup.clearLayers();
+      const rows = [];
+      (d.results || []).forEach((o, i) => {
+        const [la, lo] = String(o.location || '').split(',').map(parseFloat);
+        if (!Number.isFinite(la)) return;
+        const name = o.taxon?.preferred_common_name || o.taxon?.name || 'observation';
+        const when = o.time_observed_at || o.observed_on;
+        const photo = (o.photos || [])[0]?.url;
+        L.marker([la, lo], { icon: poiIcon('🦊') }).bindPopup(
+          `<b>${H(name)}</b> <span class="sub">${H(o.taxon?.name || '')}</span><br>` +
+          (photo ? `<img src="${H(photo.replace('square', 'small'))}" style="width:150px;border-radius:6px" loading="lazy"><br>` : '') +
+          `${when ? age(Date.parse(when)) : ''} · by ${H(o.user?.login || '?')}` +
+          `${o.quality_grade === 'research' ? ' · ✓ research grade' : ''}<br>` +
+          `<span class="links"><a href="${H(o.uri)}" target="_blank" rel="noopener">iNaturalist</a></span>`
+        ).addTo(wildGroup);
+        if (i < 3 && when) rows.push(`<div class="r"><span>${H(name.slice(0, 18))}</span><span>${age(Date.parse(when))}</span></div>`);
+      });
+      card('ovc-wildlife').innerHTML =
+        `<h4>🦊 wildlife · ${(d.total_results || 0).toLocaleString()} logged here</h4>` +
+        (rows.join('') || '<div>no recent observations</div>') +
+        '<div class="r"><span class="src">latest 50 shown · iNaturalist</span></div>';
+    } catch {}
+  }
+  function wildlifeOn() {
+    wildGroup = wildGroup || L.layerGroup().addTo(map);
+    wildlifeRefresh();
+    clearInterval(wildTimer);
+    wildTimer = setInterval(wildlifeRefresh, 10 * 60 * 1000);
+  }
+  function wildlifeOff() { clearInterval(wildTimer); wildTimer = null; wildGroup?.clearLayers(); dropCard('ovc-wildlife'); }
+
+  /* ============ 14. power cuts (UK Power Networks live faults) =========== */
+  let powerGroup = null, powerTimer = null;
+
+  async function powerRefresh() {
+    if (!here || !powerGroup) return;
+    try {
+      const km = Math.max(25, radiusKm);
+      const r = await fetch('https://ukpowernetworks.opendatasoft.com/api/explore/v2.1/catalog/datasets/ukpn-live-faults/records' +
+        `?where=${encodeURIComponent(`within_distance(geopoint, geom'POINT(${here.lon.toFixed(4)} ${here.lat.toFixed(4)})', ${km}km)`)}&limit=40`,
+        { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!st.power) return;
+      powerGroup.clearLayers();
+      let active = 0, planned = 0, restored = 0;
+      for (const f of d.results || []) {
+        if (!f.geopoint) continue;
+        const type = f.powercuttype || f.incidenttypename || '?';
+        const isRestored = /restored/i.test(type);
+        const isPlanned = /planned/i.test(type) && !/unplanned/i.test(type);
+        if (isRestored) restored++; else if (isPlanned) planned++; else active++;
+        L.circleMarker([f.geopoint.lat, f.geopoint.lon], {
+          radius: 7, color: '#fff', weight: 1,
+          fillColor: isRestored ? '#9aa7b8' : isPlanned ? '#ffa050' : '#ff5050', fillOpacity: 0.85,
+        }).bindPopup(
+          `<b>${H(type)} power cut</b><br>` +
+          `${f.nocustomeraffected ? `${f.nocustomeraffected} customers · ` : ''}${H((f.postcodesaffected || '').split(';').slice(0, 3).join(', '))}<br>` +
+          `${H((f.incidentcategorycustomerfriendlydescription || f.mainmessage || '').slice(0, 160))}<br>` +
+          (f.estimatedrestorationdate && !isRestored ? `est. restore ${fmtT(new Date(f.estimatedrestorationdate))}<br>` : '') +
+          `<span class="src">${H(f.incidentreference || '')} · UKPN</span>`
+        ).addTo(powerGroup);
+      }
+      card('ovc-power').innerHTML = '<h4>🔌 power cuts</h4>' +
+        `<div class="r${active ? ' warn' : ''}"><span>live cuts</span><span>${active}</span></div>` +
+        `<div class="r"><span>planned</span><span>${planned}</span></div>` +
+        `<div class="r"><span>restored recently</span><span>${restored}</span></div>` +
+        `<div class="r"><span class="src">within ${km} km · UKPN region (London/SE/East)</span></div>`;
+    } catch {}
+  }
+  function powerOn() {
+    powerGroup = powerGroup || L.layerGroup().addTo(map);
+    powerRefresh();
+    clearInterval(powerTimer);
+    powerTimer = setInterval(powerRefresh, 5 * 60 * 1000);
+  }
+  function powerOff() { clearInterval(powerTimer); powerTimer = null; powerGroup?.clearLayers(); dropCard('ovc-power'); }
+
+  /* ============ 15. heritage (planning.data.gov.uk) ====================== */
+  const HERITAGE_SETS = {
+    'listed-building-outline': { label: 'listed', emoji: '🏠' },
+    'scheduled-monument': { label: 'monuments', emoji: '🗿' },
+    'conservation-area': { label: 'conservation', emoji: '🏘' },
+    'park-and-garden': { label: 'parks', emoji: '🌳' },
+    'ancient-woodland': { label: 'woodland', emoji: '🌲' },
+  };
+  let herGroup = null;
+  const herSets = () => {
+    try {
+      return JSON.parse(localStorage.getItem('heritage_sets') || 'null') || ['scheduled-monument', 'listed-building-outline'];
+    } catch { return ['scheduled-monument']; }
+  };
+
+  function renderHerCard(counts, note) {
+    const sets = herSets();
+    const chips = Object.entries(HERITAGE_SETS).map(([k, c]) =>
+      `<span class="chip${sets.includes(k) ? ' on' : ''}" data-set="${k}">${c.emoji} ${c.label}${counts && counts[k] ? ` · ${counts[k]}` : ''}</span>`).join('');
+    const el = card('ovc-heritage');
+    el.innerHTML = `<h4>🏛 heritage</h4><div class="chips">${chips}</div>` +
+      `<div class="src">${H(note || 'planning.data.gov.uk · tap chips to choose')}</div>`;
+    el.onclick = (ev) => {
+      const chip = ev.target.closest('.chip');
+      if (!chip) return;
+      const k = chip.dataset.set, cur = herSets();
+      localStorage.setItem('heritage_sets', JSON.stringify(cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
+      heritageRefresh();
+    };
+  }
+
+  async function heritageRefresh() {
+    if (!here || !herGroup) return;
+    const sets = herSets();
+    herGroup.clearLayers();
+    if (!sets.length) { renderHerCard(null, 'pick a category'); return; }
+    try {
+      // their spatial queries crawl on big envelopes — 6 km is fast (and the
+      // 100-entity cap fills long before that anyway)
+      const hkm = Math.min(6, radiusKm);
+      const dLat = hkm / 111, dLon = hkm / (111 * Math.cos(here.lat * RAD));
+      const wkt = `POLYGON((${here.lon - dLon} ${here.lat - dLat},${here.lon + dLon} ${here.lat - dLat},` +
+        `${here.lon + dLon} ${here.lat + dLat},${here.lon - dLon} ${here.lat + dLat},${here.lon - dLon} ${here.lat - dLat}))`;
+      const cacheKey = `her:${[...sets].sort().join('.')}:${here.lat.toFixed(2)}:${here.lon.toFixed(2)}:${hkm}`;
+      let entities = null;
+      try {
+        const c = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+        if (c && Date.now() - c.ts < 24 * 3600 * 1000) entities = c.d;
+      } catch {}
+      if (!entities) {
+        renderHerCard(null, 'searching…');
+        const u = 'https://www.planning.data.gov.uk/entity.json?geometry_relation=intersects&limit=100' +
+          sets.map((x) => `&dataset=${x}`).join('') + `&geometry=${encodeURIComponent(wkt)}`;
+        const r = await fetch(u, { signal: AbortSignal.timeout(30000) });
+        if (!r.ok) { renderHerCard(null, 'service busy — try again shortly'); return; }
+        entities = ((await r.json()).entities || []).map((e) => ({
+          n: e.name, d: e.dataset, p: e.point, u: e['documentation-url'] || '',
+        }));
+        try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), d: entities })); } catch {}
+      }
+      if (!st.heritage) return;
+      const counts = {};
+      for (const e of entities) {
+        const m = /POINT ?\(([-\d.]+) ([-\d.]+)\)/.exec(e.p || '');
+        if (!m) continue;
+        counts[e.d] = (counts[e.d] || 0) + 1;
+        L.marker([parseFloat(m[2]), parseFloat(m[1])], { icon: poiIcon(HERITAGE_SETS[e.d]?.emoji || '🏛') }).bindPopup(
+          `<b>${H(e.n || HERITAGE_SETS[e.d]?.label || 'entity')}</b> <span class="sub">${H(e.d)}</span><br>` +
+          (e.u ? `<span class="links"><a href="${H(e.u)}" target="_blank" rel="noopener">Historic England</a></span>` : '')
+        ).addTo(herGroup);
+      }
+      renderHerCard(counts, `within ${Math.round(Math.min(6, radiusKm))} km` + (entities.length >= 100 ? ' · first 100' : ''));
+    } catch { renderHerCard(null, 'service busy — try again shortly'); }
+  }
+  function heritageOn() { herGroup = herGroup || L.layerGroup().addTo(map); heritageRefresh(); }
+  function heritageOff() { herGroup?.clearLayers(); dropCard('ovc-heritage'); }
+
+  /* ============ 16. blue plaques (openplaques.org CC0 harvest) =========== */
+  let plaqueData = null, plaqueGroup = null;
+
+  async function plaquesRefresh() {
+    if (!here || !plaqueGroup) return;
+    try {
+      if (!plaqueData) {
+        card('ovc-plaques').innerHTML = '<h4>🔵 blue plaques</h4><div>loading…</div>';
+        const r = await fetch('data/plaques.min.json');
+        plaqueData = await r.json();
+      }
+      if (!st.plaques) return;
+      plaqueGroup.clearLayers();
+      const near = plaqueData
+        .map(([id, la, lo, txt]) => ({ id, la, lo, txt, d: KM(here, { lat: la, lon: lo }) }))
+        .filter((p) => p.d <= radiusKm)
+        .sort((a, b) => a.d - b.d);
+      for (const p of near.slice(0, 200)) {
+        L.marker([p.la, p.lo], { icon: poiIcon('🔵') }).bindPopup(
+          `<b>${H(p.txt)}${p.txt.length >= 90 ? '…' : ''}</b><br>${p.d.toFixed(1)} km away<br>` +
+          `<span class="links"><a href="https://openplaques.org/plaques/${p.id}" target="_blank" rel="noopener">full plaque</a></span>`
+        ).addTo(plaqueGroup);
+      }
+      card('ovc-plaques').innerHTML =
+        `<h4>🔵 blue plaques · ${near.length} in ring</h4>` +
+        near.slice(0, 3).map((p) => `<div class="r"><span>${H(p.txt.slice(0, 20))}</span><span>${p.d.toFixed(1)}km</span></div>`).join('') +
+        `<div class="r"><span class="src">openplaques.org (CC0 harvest)${near.length > 200 ? ' · nearest 200 mapped' : ''}</span></div>`;
+    } catch {}
+  }
+  function plaquesOn() { plaqueGroup = plaqueGroup || L.layerGroup().addTo(map); plaquesRefresh(); }
+  function plaquesOff() { plaqueGroup?.clearLayers(); dropCard('ovc-plaques'); }
+
   /* ============ toggle engine ============ */
   const LAYERS = {
     sat: [satOn, satOff], marine: [marineOn, marineOff], air: [airOn, airOff],
@@ -948,6 +1212,9 @@
     gauges: [gaugesOn, gaugesOff], carbon: [carbonOn, carbonOff],
     infra: [infraOn, infraOff], wiki: [wikiOn, wikiOff],
     crime: [crimeOn, crimeOff], food: [foodOn, foodOff],
+    trains: [trainsOn, trainsOff], wildlife: [wildlifeOn, wildlifeOff],
+    power: [powerOn, powerOff], heritage: [heritageOn, heritageOff],
+    plaques: [plaquesOn, plaquesOff],
   };
 
   const started = {};
@@ -1022,6 +1289,11 @@
       if (st.wiki) wikiRefresh();
       if (st.crime) crimeRefresh();
       if (st.food) foodRefresh();
+      if (st.trains) trainsRefresh();
+      if (st.wildlife) wildlifeRefresh();
+      if (st.power) powerRefresh();
+      if (st.heritage) heritageRefresh();
+      if (st.plaques) plaquesRefresh();
     }
   }, 3000);
 })();
