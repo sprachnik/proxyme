@@ -56,6 +56,23 @@ Set via the Netlify dashboard or `netlify env:set`:
 |---|---|---|
 | `AISSTREAM_API_KEY` | only for boats | Free key from aisstream.io. Without it the sea feed reports itself off and the air feeds still work. |
 
+## GitHub Pages build (`docs/`)
+
+`docs/` is a self-contained static variant with no backend — the browser
+calls the sources directly. Differences from the Netlify build:
+
+- **Aircraft**: airplanes.live only (the one keyless aggregator with open
+  CORS), so no fallback chain.
+- **Gliders**: OGN direct, unchanged.
+- **Boats**: a persistent AISStream websocket from the browser — positions
+  stream continuously instead of 6 s drains. Needs your own free
+  aisstream.io key: tap 🔑 in the HUD; it's stored in `localStorage` only,
+  never in the repo.
+
+Enable it under repo **Settings → Pages → Deploy from a branch**, pick the
+default branch and the `/docs` folder. The page then lives at
+`https://<user>.github.io/proxyme/`.
+
 ## Run / deploy
 
 ```bash

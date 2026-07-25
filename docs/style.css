@@ -1,0 +1,51 @@
+html, body, #map { height: 100%; margin: 0; }
+#map { position: absolute; inset: 0; }
+#hud {
+  position: absolute; z-index: 1000; top: 10px; left: 10px; right: 10px; max-width: fit-content;
+  background: rgba(20,22,28,.85); color: #e8eaf0; padding: 8px 12px;
+  border-radius: 10px; font: 13px/1.4 system-ui, sans-serif;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+#hud strong { letter-spacing: .04em; }
+#locate, #radius {
+  background: rgba(255,255,255,.1); color: inherit; border: 1px solid rgba(255,255,255,.25);
+  border-radius: 8px; padding: 2px 7px; font-size: 13px; line-height: 1.4; cursor: pointer;
+}
+#radius option { color: #111; }
+#locate:hover, #radius:hover { background: rgba(255,255,255,.2); }
+#status { min-width: 0; }
+.leaflet-container { cursor: crosshair; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 3px 0 7px; vertical-align: middle; }
+
+/* markers */
+.shape.blip {
+  width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent;
+  border-bottom: 14px solid #4ea8ff; transform-origin: 50% 70%;
+}
+.shape.dot { width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(0,0,0,.4); }
+.shape.boat { width: 10px; height: 10px; border-radius: 3px; transform: rotate(45deg); border: 1px solid rgba(0,0,0,.4); }
+
+/* popups */
+.leaflet-popup-content { font: 12px/1.5 system-ui, sans-serif; }
+.leaflet-popup-content .sub { opacity: .6; font-size: 11px; }
+.leaflet-popup-content .src { opacity: .55; font-size: 11px; }
+
+/* nearest-first list */
+#panel {
+  position: absolute; z-index: 1000; bottom: 14px; left: 10px;
+  background: rgba(20,22,28,.85); color: #e8eaf0; border-radius: 10px;
+  font: 12px/1.5 system-ui, sans-serif; max-height: 38vh; overflow-y: auto;
+  width: min(320px, calc(100vw - 20px));
+}
+#panel:empty { display: none; }
+#panel .row {
+  display: flex; gap: 8px; align-items: center; padding: 5px 10px; cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+#panel .row:last-child { border-bottom: none; }
+#panel .row:hover { background: rgba(255,255,255,.08); }
+#panel .row.empty { cursor: default; opacity: .6; }
+#panel i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+#panel .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#panel .meta { opacity: .65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+#panel .dist { opacity: .8; flex: none; }
