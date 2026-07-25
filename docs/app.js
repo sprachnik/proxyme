@@ -22,6 +22,38 @@ const CATEGORY_SUB = {
   B1: 'glider', B2: 'balloon', B4: 'ultralight', B6: 'drone',
 };
 
+// Mode-S-only aircraft (MLAT positions) never transmit a category, so fall
+// back to the ICAO type designator / model description.
+const HELI_TYPES = new Set([
+  'R22', 'R44', 'R66', 'B06', 'B06T', 'B47G', 'B407', 'B412', 'B429', 'B505',
+  'EC20', 'EC25', 'EC30', 'EC35', 'EC45', 'EC55', 'EC75', 'AS50', 'AS55',
+  'AS65', 'A109', 'A119', 'A139', 'A149', 'A169', 'A189', 'S76', 'S92',
+  'H500', 'H269', 'H47', 'H60', 'UH1', 'MD52', 'MD60', 'G2CA', 'EXPL',
+  'LYNX', 'GAZL', 'PUMA', 'TIGR', 'EH10', 'NH90', 'V22',
+]);
+const LIGHT_TYPES = new Set([
+  'C120', 'C140', 'C150', 'C152', 'C162', 'C170', 'C172', 'C175', 'C177',
+  'C180', 'C182', 'C185', 'C206', 'C210', 'P28A', 'P28B', 'P28R', 'P28T',
+  'PA18', 'PA24', 'PA25', 'PA30', 'PA32', 'PA34', 'PA38', 'PA46', 'J3',
+  'BE33', 'BE35', 'BE36', 'BE55', 'BE58', 'BE76', 'DA40', 'DA42', 'DA62',
+  'DV20', 'SR20', 'SR22', 'M20P', 'M20T', 'M20J', 'RV4', 'RV6', 'RV7',
+  'RV8', 'RV9', 'RV10', 'RV12', 'RV14', 'AA5', 'CH7A', 'CH7B', 'BL8',
+  'TB9', 'TB10', 'TB20', 'DR40', 'DR30', 'G115', 'AT3', 'SIRA', 'EUPA',
+  'TECN', 'P208', 'P210', 'VL3', 'CRUZ', 'SAVG', 'EV97', 'FK9', 'ULAC',
+  'PNR2', 'PNR3', 'JAB4', 'AQUI', 'SLG2', 'SLG4', 'NG5', 'WT9', 'ECHO',
+]);
+
+function inferSub(t, desc) {
+  const d = String(desc || '').toUpperCase();
+  if (HELI_TYPES.has(t) ||
+      /HELICOPTER|ROBINSON|EUROCOPTER|AEROSPATIALE|SIKORSKY|AGUSTA|LEONARDO AW|BELL \d|MD HELI|SCHWEIZER|ENSTROM|GUIMBAL|ROTORWAY|GYROPLANE|AUTOGYRO|GYROCOPTER/.test(d)) return 'heli';
+  if (/GLIDER|SAILPLANE/.test(d)) return 'glider';
+  if (/BALLOON/.test(d)) return 'balloon';
+  if (/AIRSHIP|ZEPPELIN/.test(d)) return 'airship';
+  if (LIGHT_TYPES.has(t) || /MICROLIGHT|ULTRALIGHT/.test(d)) return 'light';
+  return null;
+}
+
 function normalizeAdsb(ac) {
   if (ac.lat == null || ac.lon == null) return null;
   const ground = ac.alt_baro === 'ground';
@@ -30,7 +62,7 @@ function normalizeAdsb(ac) {
   return {
     id: String(ac.hex || '').toLowerCase(),
     kind: 'air',
-    sub: CATEGORY_SUB[ac.category] || 'plane',
+    sub: CATEGORY_SUB[ac.category] || inferSub(ac.t, ac.desc || ac.t) || 'plane',
     lat: ac.lat,
     lon: ac.lon,
     alt: altFt != null ? Math.round(altFt * 0.3048) : null,
