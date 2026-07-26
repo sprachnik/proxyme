@@ -2,7 +2,9 @@ node_modules/
 .netlify/
 .env
 .env.*
+!.env.example
 *.log
+deno.lock
 
 # Editor / OS
 .DS_Store

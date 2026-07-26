@@ -100,8 +100,32 @@ nearest-first list panel (tap to fly to the target).
 Aircraft, gliders and every overlay work with zero configuration; boats need
 a free aisstream.io key entered via 🔑 (stored in localStorage only).
 
-**Netlify**: `npm i && npx netlify dev`, deploy with
-`npx netlify deploy --prod`. Env var: `AISSTREAM_API_KEY` (only for boats).
+**Netlify**: `npm i && npm run dev` (serves `public/` plus the real functions
+at `/api/*` on :8888). Copy `.env.example` → `.env` for `AISSTREAM_API_KEY`
+(boats only — everything else is keyless). Deploy with `npm run deploy:prod`.
+
+**Pages build locally**: `npm run dev:pages` → :8000, no backend.
+
+### Adding an endpoint
+
+```
+npm run new:fn tides     # → netlify/functions/tides.js, live at /api/tides
+```
+
+The scaffold already has param validation, the Blobs cache seam and the JSON
+helper wired up; fill in the fetch and the normaliser. Then wire it into
+`public/app.js` or `public/overlays.js` (see the layer template in
+`CLAUDE.md`).
+
+### Before committing
+
+```
+npm run check
+```
+
+Syntax-checks every JS file and asserts `docs/` and `public/` have not
+drifted on the files that must stay byte-identical. `npm run sync` fixes
+drift by copying the `docs/` copies over.
 
 ## Licensing / usage notes
 

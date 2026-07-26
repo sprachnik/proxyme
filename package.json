@@ -2,6 +2,15 @@
   "name": "proxme",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "netlify dev",
+    "dev:pages": "node scripts/serve-docs.mjs",
+    "new:fn": "node scripts/new-function.mjs",
+    "sync": "node scripts/sync.mjs",
+    "check": "node scripts/check.mjs && node scripts/sync.mjs --check",
+    "deploy": "netlify deploy --build",
+    "deploy:prod": "netlify deploy --build --prod"
+  },
   "dependencies": {
     "@netlify/blobs": "^8.1.0",
     "ws": "^8.18.0"

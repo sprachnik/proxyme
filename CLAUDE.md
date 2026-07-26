@@ -18,12 +18,37 @@ map. Two deployments, one codebase, no build step, no framework.
 
 ## Deployment / git
 
-- Default branch (Pages deploys `/docs` from it): `claude/proxme-transponder-map-aonxd6`.
-- Working branch: `claude/local-vehicle-tracker-cc2s2j`.
-- Flow: commit on the working branch → push → `git checkout` default →
-  `git merge --ff-only` working → push → back to working branch.
-- Live site: https://sprachnik.github.io/proxyme/ (owner tests on a phone at
-  the Kent coast — mobile is first-class, verify layouts at ≤640 px).
+- Repo: `sprachnik/proxyme` (private), default branch `main`. `upstream`
+  remote points at the original `sprachnik/proxyme`.
+- The `origin` URL carries the `sprachnik@` username and the repo sets
+  `credential.helper=!gh auth git-credential` locally — the machine's default
+  Git Credential Manager account is `sprachnik`, which cannot see this repo.
+- Netlify: `nimble-pothos-0ff3c0.netlify.app`
+  (team `jamesasmoores13`, project id `9e547557-454a-44e0-8621-55ad3bd8c766`).
+- Owner tests on a phone at the Kent coast — mobile is first-class, verify
+  layouts at ≤640 px.
+
+## Local development
+
+| Command | Does |
+|---|---|
+| `npm run dev` | `netlify dev` on :8888 — `public/` + real functions at `/api/*` |
+| `npm run dev:pages` | `docs/` (Pages build) on :8000, no backend |
+| `npm run new:fn <name>` | scaffolds `netlify/functions/<name>.js` → `/api/<name>` |
+| `npm run sync` | copies the shared files `docs/` → `public/` |
+| `npm run check` | `node --check` every JS file **and** assert docs/public parity |
+| `npm run deploy:prod` | build + deploy to production |
+
+- Run `npm run check` before every commit — it enforces both the syntax rule
+  and the byte-identical rule above.
+- Secrets: copy `.env.example` → `.env` (gitignored). Only
+  `AISSTREAM_API_KEY` exists; without it `/api/vessels` returns 501 and
+  everything else works. One concurrent connection per key, so a local
+  `netlify dev` and the deployed site will fight over the same key.
+- Functions whose filename starts with `_` are helpers by convention, but
+  Netlify still bundles and exposes them (`/.netlify/functions/_store` → 502,
+  not 404). Never put anything sensitive there. The new-function template
+  lives in `scripts/templates/` for exactly this reason.
 
 ## Code architecture
 
