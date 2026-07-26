@@ -14,6 +14,23 @@ let map, youMarker, ring, layer;
 const VEH_KEY = 'vehicles';
 const show = Object.assign({ air: true, ogn: true, sea: true },
   JSON.parse(localStorage.getItem(VEH_KEY) || '{}'));
+
+// Default pin, set from the 🏠 popover in overlays.js. When one is saved it
+// wins over geolocation at startup: GPS is slow to fix and wrong indoors, and
+// this app is usually pointed at one favourite spot. 📍 still overrides.
+const HOME_KEY = 'home';
+function savedHome() {
+  try {
+    const h = JSON.parse(localStorage.getItem(HOME_KEY) || 'null');
+    return h && Number.isFinite(h.lat) && Number.isFinite(h.lon) ? h : null;
+  } catch { return null; }
+}
+function setHome(h) {
+  if (h) localStorage.setItem(HOME_KEY, JSON.stringify(h));
+  else localStorage.removeItem(HOME_KEY);
+}
+// Guidance that must outlive refresh(), which rewrites #status every poll.
+let locHint = '';
 let pollTimer = null;
 let here = null; // { lat, lon } current search centre
 let radiusKm = 20;
@@ -494,6 +511,7 @@ async function refresh() {
   const nGlide = entities.filter((e) => GLIDERY.has(e.sub)).length;
   const nSea = entities.filter((e) => e.kind === 'sea').length;
   const notes = [];
+  if (locHint) notes.push(locHint);
   if (show.air && air.status === 'rejected' && (!show.ogn || ogn.status === 'rejected')) notes.push('air feeds down');
   if (show.sea) {
     if (!aisKey()) notes.push('boats off — tap 🔑 for a free aisstream.io key');
@@ -528,20 +546,36 @@ function setRadius(km) {
   if (here) { map.setView([here.lat, here.lon], zoomFor(km)); refresh(); }
 }
 
-function locate() {
+async function locate(byTap = false) {
   if (!navigator.geolocation) {
     statusEl.textContent = 'no geolocation — tap the map to pick a spot';
     if (!here) setLocation(...FALLBACK, true);
     return;
   }
+  // Chrome suppresses permission prompts that aren't tied to a user gesture,
+  // and in an installed PWA that means the dialog silently never appears —
+  // the app just looks blocked. So on a cold start only auto-locate when
+  // permission already exists; otherwise wait for a real tap on 📍.
+  if (!byTap && navigator.permissions) {
+    let state = null;
+    try { state = (await navigator.permissions.query({ name: 'geolocation' })).state; } catch {}
+    if (state === 'prompt' || state === 'denied') {
+      locHint = state === 'denied'
+        ? 'location blocked — allow it in app settings'
+        : 'tap 📍 to use your location';
+      statusEl.textContent = locHint;
+      if (!here) setLocation(...FALLBACK, true);
+      return;
+    }
+  }
   statusEl.textContent = 'locating…';
   navigator.geolocation.getCurrentPosition(
-    (p) => setLocation(p.coords.latitude, p.coords.longitude, true),
+    (p) => { locHint = ''; setLocation(p.coords.latitude, p.coords.longitude, true); },
     (err) => {
-      statusEl.textContent =
-        err.code === 1
-          ? 'location blocked — tap the map to pick a spot (or allow location in your browser, then tap 📍)'
-          : 'location unavailable — tap the map to pick a spot';
+      locHint = err.code === 1
+        ? 'location blocked — allow it in app settings (Android: long-press the icon → App info → Permissions)'
+        : 'location unavailable — tap the map to pick a spot';
+      statusEl.textContent = locHint;
       if (!here) setLocation(...FALLBACK, true); // show *something* so it's not a blank map
     },
     { enableHighAccuracy: true, timeout: 8000 }
@@ -570,14 +604,20 @@ function init() {
   // Drop a pin: tap/click anywhere to search around that point.
   map.on('click', (ev) => setLocation(ev.latlng.lat, ev.latlng.lng));
 
-  document.getElementById('locate').addEventListener('click', locate);
+  document.getElementById('locate').addEventListener('click', () => locate(true));
   document.getElementById('aiskey').addEventListener('click', setAisKey);
   document.getElementById('wx').addEventListener('click', () => setWeather(!wxOn));
   radiusEl.addEventListener('change', () => setRadius(parseFloat(radiusEl.value)));
   if (wxOn) setWeather(true);
 
-  statusEl.textContent = 'locating… (or tap the map to pick a spot)';
-  locate();
+  const home = savedHome();
+  if (home) {
+    statusEl.textContent = `${home.label || 'default pin'} · loading…`;
+    setLocation(home.lat, home.lon, true);
+  } else {
+    statusEl.textContent = 'locating… (or tap the map to pick a spot)';
+    locate();
+  }
 }
 
 init();

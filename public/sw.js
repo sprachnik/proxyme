@@ -5,7 +5,7 @@
 // Bump VERSION whenever a shell file changes; old caches are dropped on
 // activate. Relative URLs resolve against this script, so the same file works
 // at the site root (Netlify) and under /proxyme/ (GitHub Pages).
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = `proxme-shell-${VERSION}`;
 const RUNTIME = `proxme-runtime-${VERSION}`;
 

@@ -139,15 +139,143 @@
     if (!ev.target.closest('#layersWrap')) menu.hidden = true;
   }, true);
 
+  /* ============ UI: default pin (🏠) ============ */
+  document.getElementById('layersWrap').insertAdjacentHTML('afterend', `
+    <span id="homeWrap">
+      <button id="homeBtn" type="button" title="Default pin / search a postcode">🏠</button>
+      <div id="homeMenu" hidden>
+        <div class="sec">default pin</div>
+        <form id="homeForm">
+          <input id="homeQ" type="search" enterkeyhint="search" autocomplete="postal-code"
+                 autocapitalize="characters" placeholder="postcode, place or lat,lon" />
+          <button type="submit" id="homeGo">go</button>
+        </form>
+        <div id="homeMsg"></div>
+        <button type="button" class="hact" data-act="save">📌 use the current pin</button>
+        <button type="button" class="hact" data-act="clear">✖ clear — use my location</button>
+      </div>
+    </span>`);
+  const homeMenu = document.getElementById('homeMenu');
+  const homeMsg = document.getElementById('homeMsg');
+  const homeQ = document.getElementById('homeQ');
+  document.getElementById('homeBtn').addEventListener('click', () => {
+    homeMenu.hidden = !homeMenu.hidden;
+    if (!homeMenu.hidden) { paintHomeMsg(); homeQ.focus(); }
+  });
+  document.addEventListener('pointerdown', (ev) => {
+    if (!ev.target.closest('#homeWrap')) homeMenu.hidden = true;
+  }, true);
+
+  function paintHomeMsg(text, kind) {
+    if (text) { homeMsg.className = kind || ''; homeMsg.textContent = text; return; }
+    const h = savedHome();
+    homeMsg.className = '';
+    homeMsg.textContent = h
+      ? `default: ${h.label || `${h.lat.toFixed(3)}, ${h.lon.toFixed(3)}`}`
+      : 'no default — opens at your location';
+  }
+
+  // postcodes.io for anything postcode-shaped (it is the accurate source for
+  // the UK and needs no key), Nominatim only as the free-text fallback.
+  async function geocode(q) {
+    const s = q.trim();
+    if (!s) return null;
+    const ll = s.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (ll && Math.abs(+ll[1]) <= 90 && Math.abs(+ll[2]) <= 180) {
+      return { lat: +ll[1], lon: +ll[2], label: `${(+ll[1]).toFixed(3)}, ${(+ll[2]).toFixed(3)}` };
+    }
+    const pc = s.toUpperCase().replace(/\s+/g, '');
+    const full = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/.test(pc);
+    const out = /^[A-Z]{1,2}\d[A-Z\d]?$/.test(pc);
+    if (full || out) {
+      const path = full ? 'postcodes' : 'outcodes';
+      const r = await fetch(`https://api.postcodes.io/${path}/${encodeURIComponent(pc)}`,
+        { signal: AbortSignal.timeout(10000) });
+      const d = r.ok ? (await r.json()).result : null;
+      if (d) return { lat: d.latitude, lon: d.longitude, label: d.postcode || d.outcode };
+      return null; // a malformed postcode should not silently become a place search
+    }
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' +
+      encodeURIComponent(s), { signal: AbortSignal.timeout(10000) });
+    const d = r.ok ? (await r.json())[0] : null;
+    if (!d) return null;
+    return {
+      lat: +d.lat, lon: +d.lon,
+      label: String(d.display_name || s).split(',').slice(0, 2).join(',').trim(),
+    };
+  }
+
+  document.getElementById('homeForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const q = homeQ.value;
+    if (!q.trim()) return;
+    paintHomeMsg('searching…', 'load');
+    let hit = null;
+    try { hit = await geocode(q); } catch { /* reported below */ }
+    if (!hit) { paintHomeMsg('no match — try a full postcode, a place name, or lat,lon', 'warn'); return; }
+    setHome(hit);
+    locHint = ''; // they have chosen a spot; stop nagging about geolocation
+    setLocation(hit.lat, hit.lon, true);
+    paintHomeMsg(`default: ${hit.label}`);
+    homeQ.value = '';
+    if (window.innerWidth <= 640) homeMenu.hidden = true;
+  });
+
+  homeMenu.addEventListener('click', (ev) => {
+    const act = ev.target.closest('.hact')?.dataset.act;
+    if (!act) return;
+    if (act === 'save') {
+      if (!here) { paintHomeMsg('no pin yet — tap the map first', 'warn'); return; }
+      const h = { lat: here.lat, lon: here.lon, label: `${here.lat.toFixed(3)}, ${here.lon.toFixed(3)}` };
+      setHome(h);
+      paintHomeMsg(`default: ${h.label}`);
+    } else {
+      setHome(null);
+      paintHomeMsg();
+    }
+  });
+
   const dock = document.createElement('div');
   dock.id = 'ovcards';
   document.body.appendChild(dock);
+  // Every layer that renders a card. Used to show a placeholder the instant a
+  // toggle is tapped — most of these feeds take seconds, and a menu that goes
+  // quiet reads as broken.
+  const CARDS = {
+    sat: '🛰 satellites', marine: '🌊 sea & tides', air: '🌿 air, pollen & UV',
+    sun: '🌗 sun, moon & aurora', quake: '🌍 earthquakes', gauges: '💧 rivers & floods',
+    carbon: '⚡ grid electricity', infra: '🏗 infrastructure', wiki: '📖 wikipedia',
+    crime: '🚨 street crime', food: '🍽 food hygiene', trains: '🚉 train departures',
+    wildlife: '🦊 wildlife', power: '🔌 power cuts', heritage: '🏛 heritage',
+    plaques: '🔵 blue plaques',
+  };
+  const cardId = (k) => `ovc-${k}`;
+  const ownerOf = (id) => id.replace(/^ovc-/, '');
+
   function card(id) {
     let el = document.getElementById(id);
     if (!el) { el = document.createElement('div'); el.id = id; el.className = 'ovcard'; dock.appendChild(el); }
+    // Real content is arriving — whoever called this is about to write it.
+    el.classList.remove('busy');
+    setRowBusy(ownerOf(id), false);
     return el;
   }
-  const dropCard = (id) => document.getElementById(id)?.remove();
+
+  /** Placeholder card + spinning menu row, cleared by the next card() call. */
+  function busyCard(k, note) {
+    if (!CARDS[k]) return;
+    const el = card(cardId(k));
+    el.classList.add('busy');
+    el.innerHTML = `<h4>${H(CARDS[k])}</h4><div class="load"><span class="sp"></span>${H(note || 'loading…')}</div>`;
+    setRowBusy(k, true);
+  }
+
+  function setRowBusy(k, on) {
+    const cb = menu.querySelector(`input[data-l="${k}"]`);
+    cb?.closest('label')?.classList.toggle('busy', !!on);
+  }
+
+  const dropCard = (id) => { setRowBusy(ownerOf(id), false); document.getElementById(id)?.remove(); };
   const poiIcon = (emoji) => L.divIcon({
     className: '', html: `<div class="poi">${emoji}</div>`, iconSize: [22, 22], iconAnchor: [11, 11],
   });
@@ -760,7 +888,7 @@
     'https://overpass.kumi.systems/api/interpreter',
     'https://overpass.private.coffee/api/interpreter',
   ];
-  let infraGroup = null, infraBusy = false;
+  let infraGroup = null, infraBusy = false, infraPending = false;
   const infraCats = () => {
     try {
       return JSON.parse(localStorage.getItem('infra_cats') || 'null') || ['defib', 'lifeboat', 'wreck', 'bunker', 'light'];
@@ -773,18 +901,25 @@
       `<span class="chip${cats.includes(k) ? ' on' : ''}" data-cat="${k}">${c.emoji} ${c.label}${counts && counts[k] ? ` · ${counts[k]}` : ''}</span>`).join('');
     const el = card('ovc-infra');
     el.innerHTML = `<h4>🏗 infrastructure</h4><div class="chips">${chips}</div>` +
-      (note ? `<div class="src">${H(note)}</div>` : '<div class="src">OpenStreetMap · tap chips to choose</div>');
+      (infraBusy
+        ? '<div class="load"><span class="sp"></span>searching OpenStreetMap…</div>'
+        : `<div class="src">${H(note || 'OpenStreetMap · tap chips to choose')}</div>`);
+    setRowBusy('infra', infraBusy);
     el.onclick = (ev) => {
       const chip = ev.target.closest('.chip');
       if (!chip) return;
       const k = chip.dataset.cat, cur = infraCats();
       localStorage.setItem('infra_cats', JSON.stringify(cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
+      renderInfraCard(counts); // repaint the chip now — the refresh may be queued
       infraRefresh();
     };
   }
 
   async function infraRefresh() {
-    if (!here || !infraGroup || infraBusy) return;
+    if (!here || !infraGroup) return;
+    // A chip tapped during an Overpass query (up to 30 s) used to be dropped
+    // silently — the card never repainted, so the tap looked broken. Queue it.
+    if (infraBusy) { infraPending = true; return; }
     const cats = infraCats();
     infraGroup.clearLayers();
     if (!cats.length) { renderInfraCard(null, 'pick a category'); return; }
@@ -798,7 +933,7 @@
     } catch {}
     if (!data) {
       infraBusy = true;
-      renderInfraCard(null, 'searching OpenStreetMap…');
+      renderInfraCard(null);
       for (const mirror of OP_MIRRORS) {
         try {
           const r = await fetch(mirror, {
@@ -817,6 +952,8 @@
       }
     }
     if (!st.infra) return;
+    // chips changed while we were fetching — redo with the new selection
+    if (infraPending) { infraPending = false; return infraRefresh(); }
     if (!data) { renderInfraCard(null, 'OpenStreetMap busy — try again in a minute'); return; }
     infraGroup.clearLayers();
     const counts = {};
@@ -848,7 +985,10 @@
       const rad = Math.min(10000, radiusKm * 1000);
       const r = await fetch('https://en.wikipedia.org/w/api.php?action=query&list=geosearch' +
         `&gscoord=${here.lat.toFixed(4)}|${here.lon.toFixed(4)}&gsradius=${rad}&gslimit=40&format=json&origin=*`, { signal: AbortSignal.timeout(15000) });
-      if (!r.ok) return;
+      if (!r.ok) {
+        if (st.wiki) card('ovc-wiki').innerHTML = '<h4>📖 wikipedia</h4><div>feed unavailable — will retry</div>';
+        return;
+      }
       const items = (await r.json()).query?.geosearch || [];
       if (!st.wiki) return;
       wikiGroup.clearLayers();
@@ -858,10 +998,15 @@
           `<span class="links"><a href="https://en.wikipedia.org/?curid=${it.pageid}" target="_blank" rel="noopener">read article</a></span>`
         ).addTo(wikiGroup);
       }
-    } catch {}
+      card('ovc-wiki').innerHTML = `<h4>📖 wikipedia</h4><div class="r"><span>${items.length} articles</span>` +
+        `<span>${(Math.min(10000, radiusKm * 1000) / 1000).toFixed(0)} km</span></div>` +
+        '<div class="src">wikipedia geosearch · tap a 📖 pin</div>';
+    } catch {
+      if (st.wiki) card('ovc-wiki').innerHTML = '<h4>📖 wikipedia</h4><div>feed unavailable — will retry</div>';
+    }
   }
   function wikiOn() { wikiGroup = wikiGroup || L.layerGroup().addTo(map); wikiRefresh(); }
-  function wikiOff() { wikiGroup?.clearLayers(); }
+  function wikiOff() { wikiGroup?.clearLayers(); dropCard('ovc-wiki'); }
 
   /* ============ 10. street crime (police.uk, last published month) ======= */
   let crimeGroup = null;
@@ -1218,8 +1363,15 @@
   };
 
   const started = {};
-  const start = (k) => { if (!started[k]) { started[k] = true; LAYERS[k][0](); } };
-  const stop = (k) => { if (started[k]) { started[k] = false; LAYERS[k][1](); } };
+  // Paint the placeholder *before* the layer runs, so the feedback is instant
+  // even when the feed takes 20 s (Overpass) or downloads 2 MB of TLEs.
+  const start = (k) => {
+    if (started[k]) return;
+    started[k] = true;
+    busyCard(k, here ? 'loading…' : 'waiting for a location…');
+    LAYERS[k][0]();
+  };
+  const stop = (k) => { if (started[k]) { started[k] = false; setRowBusy(k, false); LAYERS[k][1](); } };
 
   function setLayer(k, on) {
     if (st[k] === on) return;
@@ -1253,14 +1405,50 @@
     });
   });
 
+  /* ============ UI: collapsible nearest-first list ============ */
+  // #panel is rewritten wholesale by app.js on every poll, so the header has
+  // to live outside it — wrap both instead of prepending.
+  const panelWrap = document.createElement('div');
+  panelWrap.id = 'panelWrap';
+  panelEl.parentNode.insertBefore(panelWrap, panelEl);
+  const panelHead = document.createElement('button');
+  panelHead.id = 'panelHead';
+  panelHead.type = 'button';
+  panelWrap.append(panelHead, panelEl);
+
+  const PANEL_KEY = 'panel_open';
+  // Phones are short: default collapsed there, open on a desktop.
+  let panelOpen = localStorage.getItem(PANEL_KEY) === null
+    ? window.innerWidth > 640
+    : localStorage.getItem(PANEL_KEY) === '1';
+
+  function paintPanel() {
+    const n = panelEl.querySelectorAll('.row:not(.empty)').length;
+    panelWrap.classList.toggle('shut', !panelOpen);
+    panelWrap.classList.toggle('void', n === 0 && !panelEl.querySelector('.row'));
+    panelHead.setAttribute('aria-expanded', String(panelOpen));
+    panelHead.innerHTML =
+      `<span class="pn">${n}</span><span class="pl">nearest</span><span class="pc">${panelOpen ? '▾' : '▴'}</span>`;
+  }
+  panelHead.addEventListener('click', () => {
+    panelOpen = !panelOpen;
+    localStorage.setItem(PANEL_KEY, panelOpen ? '1' : '0');
+    paintPanel();
+  });
+  new MutationObserver(paintPanel).observe(panelEl, { childList: true });
+  paintPanel();
+
   // mobile: pin the card strip and the layers sheet just below the HUD,
   // whatever height it wraps to
   const hudEl = document.getElementById('hud');
   function placeUi() {
     const mobile = window.innerWidth <= 640;
-    const top = `${hudEl.getBoundingClientRect().bottom + 8}px`;
+    const r = hudEl.getBoundingClientRect();
+    const top = `${r.bottom + 8}px`;
     dock.style.top = mobile ? top : '';
     menu.style.top = mobile ? top : '';
+    // Leaflet's zoom control sits top-left under the HUD — push it clear.
+    document.documentElement.style.setProperty('--hud-bottom', `${r.bottom}px`);
   }
   new ResizeObserver(placeUi).observe(hudEl);
   window.addEventListener('resize', placeUi);

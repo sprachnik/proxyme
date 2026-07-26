@@ -85,6 +85,33 @@ map. Two deployments, one codebase, no build step, no framework.
   `{ id, kind:'air'|'sea', sub, lat, lon, alt /*m*/, ground, heading,
   speed /*kn*/, name, reg, model, src, ts }`. `sub` drives silhouette + colour.
 
+## UI owned by overlays.js (not app.js)
+
+`overlays.js` injects HUD controls next to 🌦 with `insertAdjacentHTML`, which
+is why these live in the *shared* file and not in the two `app.js` copies:
+
+- **☰ layers menu** (`#layersWrap`).
+- **🏠 default pin** (`#homeWrap`): postcode / place / `lat,lon` search that
+  moves the pin *and* saves it. `geocode()` uses postcodes.io for anything
+  postcode-shaped (full or outcode) and only falls back to Nominatim for free
+  text — a malformed postcode returns null rather than becoming a place
+  search. Stored under `home` as `{lat, lon, label}`; `app.js` owns
+  `savedHome()`/`setHome()` because `init()` needs it before overlays load.
+- **Collapsible nearest list**: `#panel` is rewritten wholesale by `app.js`
+  every poll, so the header lives *outside* it — overlays wraps both in
+  `#panelWrap` and repaints the count from a `MutationObserver`. Defaults to
+  collapsed at ≤640 px, remembered in `panel_open`.
+
+## Loading states
+
+- `busyCard(k, note)` paints a placeholder card + spins the menu row; `card()`
+  clears both, so a layer signals "done" simply by rendering. `start(k)` calls
+  `busyCard` *before* running the layer, so feedback is instant even when the
+  feed takes 20 s.
+- Every key in `LAYERS` must have an entry in `CARDS` and must call `card()`
+  on **every** exit path (including failures) or the row spins forever. This
+  is why `wiki` gained a card.
+
 ## Hard-won invariants (each fixed a real bug — do not regress)
 
 1. **Stale-response guard**: every async refresh re-checks its toggle after
@@ -111,6 +138,19 @@ map. Two deployments, one codebase, no build step, no framework.
 8. Mobile (≤640 px): card dock becomes a horizontal strip pinned under the
    HUD by a `ResizeObserver` (HUD height varies as it wraps); menu becomes a
    fixed two-column sheet and auto-closes after a toggle.
+9. **Never drop a tap because a fetch is in flight.** `infraRefresh()` used to
+   `return` on `infraBusy`, so a chip tapped during a 30 s Overpass query did
+   nothing at all — the card never even repainted. Queue with `infraPending`
+   and repaint optimistically before the refresh.
+10. **Geolocation is never requested on load without a gesture.** Chrome
+   suppresses prompts not tied to a user action; in an installed PWA the
+   dialog then silently never appears and the app looks blocked. `locate()`
+   checks `navigator.permissions` first and only auto-locates when already
+   `granted`; 📍 passes `byTap` to force the real request.
+11. The Leaflet zoom control sits top-left under the HUD. `placeUi()` publishes
+   `--hud-bottom` and `style.css` pads `.leaflet-top.leaflet-left` by it; at
+   ≤640 px the control moves bottom-right instead, because the card strip
+   takes that space.
 
 ## External source quirks (all keyless unless noted; CORS verified)
 

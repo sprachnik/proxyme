@@ -45,12 +45,31 @@ html, body, #map { height: 100%; margin: 0; }
 .leaflet-popup-content .links a { color: #1673d1; text-decoration: none; }
 .leaflet-popup-content .links a:hover { text-decoration: underline; }
 
-/* nearest-first list */
-#panel {
-  position: absolute; z-index: 1000; bottom: 14px; left: 10px;
-  background: rgba(20,22,28,.85); color: #e8eaf0; border-radius: 10px;
-  font: 12px/1.5 system-ui, sans-serif; max-height: 38vh; overflow-y: auto;
+/* nearest-first list — #panelWrap adds the collapsible header (overlays.js) */
+#panelWrap {
+  position: absolute; z-index: 1000; left: 10px;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   width: min(320px, calc(100vw - 20px));
+  background: rgba(20,22,28,.85); color: #e8eaf0; border-radius: 10px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#panelWrap.void { display: none; }
+#panelHead {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  background: none; border: 0; color: inherit; cursor: pointer; text-align: left;
+  padding: 7px 10px; font: 600 12px/1.4 system-ui, sans-serif;
+}
+#panelHead:hover { background: rgba(255,255,255,.07); }
+#panelHead .pn {
+  background: rgba(78,168,255,.35); border: 1px solid rgba(78,168,255,.6);
+  border-radius: 99px; padding: 0 7px; font-size: 11px;
+}
+#panelHead .pl { opacity: .6; font-weight: 500; letter-spacing: .04em; }
+#panelHead .pc { margin-left: auto; opacity: .6; }
+#panelWrap.shut #panel { display: none; }
+#panel {
+  font: 12px/1.5 system-ui, sans-serif; max-height: 38vh; overflow-y: auto;
+  border-top: 1px solid rgba(255,255,255,.09);
 }
 #panel:empty { display: none; }
 #panel .row {
@@ -114,6 +133,56 @@ html, body, #map { height: 100%; margin: 0; }
 }
 .ovcard .chip.on { background: rgba(78,168,255,.35); border-color: rgba(78,168,255,.6); }
 
+/* loading states: placeholder cards + a spinning dot on the menu row */
+@keyframes ovspin { to { transform: rotate(360deg); } }
+.ovcard .load { display: flex; align-items: center; gap: 6px; opacity: .75; font-size: 11.5px; }
+.ovcard .sp, #layersMenu label.busy::after, #homeMsg.load::before {
+  content: ''; width: 10px; height: 10px; flex: none; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.25); border-top-color: #4ea8ff;
+  animation: ovspin .7s linear infinite;
+}
+.ovcard.busy { opacity: .85; }
+#layersMenu label.busy { position: relative; }
+#layersMenu label.busy::after { display: inline-block; margin-left: 2px; }
+
+/* default-pin popover */
+#homeWrap { position: relative; display: inline-block; }
+#homeBtn {
+  background: rgba(255,255,255,.1); color: inherit; border: 1px solid rgba(255,255,255,.25);
+  border-radius: 8px; padding: 2px 7px; font-size: 13px; line-height: 1.4; cursor: pointer;
+}
+#homeBtn:hover { background: rgba(255,255,255,.2); }
+#homeMenu {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 1100; width: 250px;
+  background: rgba(20,22,28,.96); border: 1px solid rgba(255,255,255,.15);
+  border-radius: 10px; padding: 9px 11px; font: 13px/1.4 system-ui, sans-serif;
+  display: flex; flex-direction: column; gap: 7px;
+}
+#homeMenu[hidden] { display: none; }
+#homeMenu .sec { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; opacity: .5; }
+#homeForm { display: flex; gap: 6px; }
+#homeQ {
+  flex: 1; min-width: 0; background: rgba(255,255,255,.08); color: inherit;
+  border: 1px solid rgba(255,255,255,.22); border-radius: 8px;
+  padding: 6px 8px; font: 13px system-ui, sans-serif;
+}
+#homeQ::placeholder { color: rgba(232,234,240,.45); }
+#homeGo {
+  background: rgba(78,168,255,.35); color: inherit; border: 1px solid rgba(78,168,255,.6);
+  border-radius: 8px; padding: 0 11px; font: 600 12px system-ui, sans-serif; cursor: pointer;
+}
+#homeMsg { font-size: 11px; opacity: .7; display: flex; align-items: center; gap: 6px; }
+#homeMsg.warn { color: #ffb0a0; opacity: 1; }
+#homeMenu .hact {
+  background: rgba(255,255,255,.07); color: inherit; border: 1px solid rgba(255,255,255,.18);
+  border-radius: 8px; padding: 6px 8px; font: 12px system-ui, sans-serif;
+  cursor: pointer; text-align: left;
+}
+#homeMenu .hact:hover { background: rgba(255,255,255,.15); }
+
+/* keep Leaflet's zoom buttons clear of the HUD (--hud-bottom set in overlays.js) */
+.leaflet-top.leaflet-left { padding-top: calc(var(--hud-bottom, 46px) - 10px); }
+
 /* point-of-interest markers (gauges, infrastructure, wikipedia) */
 .poi {
   width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
@@ -136,4 +205,15 @@ html, body, #map { height: 100%; margin: 0; }
   }
   #ovcards::-webkit-scrollbar { display: none; }
   .ovcard { flex: none; width: 200px; box-sizing: border-box; }
+
+  /* the card strip owns the space under the HUD, so drop zoom to the thumb */
+  .leaflet-top.leaflet-left {
+    top: auto; left: auto; right: 0; padding-top: 0;
+    bottom: calc(26px + env(safe-area-inset-bottom, 0px)); /* clear the attribution */
+  }
+  /* bigger tap targets on the collapsed bar and the popover */
+  #panelHead { padding: 11px; font-size: 12.5px; min-height: 44px; }
+  #panel .row { padding: 8px 10px; min-height: 40px; }
+  #homeMenu { position: fixed; left: 10px; right: 10px; width: auto; }
+  #homeMenu .hact, #homeQ { padding: 9px 10px; }
 }
