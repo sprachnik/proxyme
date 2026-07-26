@@ -1,0 +1,18 @@
+{
+  "name": "proxme — proximity tracker",
+  "short_name": "proxme",
+  "description": "Everything with a public position or nearby-data feed, within ~20 km of you, on one map.",
+  "start_url": "./",
+  "scope": "./",
+  "id": "proxme",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#14161c",
+  "theme_color": "#14161c",
+  "categories": ["navigation", "travel", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

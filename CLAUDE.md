@@ -50,6 +50,24 @@ map. Two deployments, one codebase, no build step, no framework.
   not 404). Never put anything sensitive there. The new-function template
   lives in `scripts/templates/` for exactly this reason.
 
+## PWA layer
+
+- `manifest.webmanifest` + `sw.js` + `icons/` are shared files (in the
+  `SHARED` list in `scripts/sync.mjs`) — edit the `docs/` copy, `npm run sync`.
+- All URLs in both are **relative** so one file works at the site root
+  (Netlify) and under `/proxyme/` (Pages).
+- Icons are generated, not drawn: `npm run icons` runs
+  `scripts/make-icons.mjs` (stdlib PNG encoder, no image dependency) and
+  syncs. Change the palette constants there, not the PNGs.
+- `sw.js` caches the **shell only** — everything the app displays is live, so
+  `isLive()` forces `/api/*`, `/.netlify/*` and all cross-origin requests
+  straight to the network. Bump `VERSION` when a shell file changes.
+- The page does **not** register the worker on localhost — a caching worker
+  fights `npm run dev`. Test PWA behaviour against a deploy.
+- `netlify.toml` sets `Content-Type: application/manifest+json` (Netlify
+  otherwise serves `.webmanifest` as octet-stream, which Chrome may reject)
+  and `Cache-Control: no-cache` on `sw.js`.
+
 ## Code architecture
 
 - Classic `<script>` tags sharing global lexical scope, in order:

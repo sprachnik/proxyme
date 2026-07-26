@@ -1,13 +1,19 @@
 // Enforces the one rule from CLAUDE.md: overlays.js, style.css and data/*
 // are byte-identical between the docs/ (Pages) and public/ (Netlify) builds.
 // Edit the docs/ copy, then `npm run sync`. `--check` verifies without writing.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SHARED = ['overlays.js', 'style.css', 'data/plaques.min.json', 'data/stations.min.json'];
+const SHARED = [
+  'overlays.js', 'style.css',
+  'data/plaques.min.json', 'data/stations.min.json',
+  'manifest.webmanifest', 'sw.js',
+  'icons/icon-192.png', 'icons/icon-512.png',
+  'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png',
+];
 const check = process.argv.includes('--check');
 
 const sha = (b) => createHash('sha1').update(b).digest('hex').slice(0, 12);
@@ -16,15 +22,16 @@ let drifted = 0;
 for (const f of SHARED) {
   const src = readFileSync(join(root, 'docs', f));
   const dstPath = join(root, 'public', f);
-  const dst = readFileSync(dstPath);
-  if (sha(src) === sha(dst)) {
+  const dst = existsSync(dstPath) ? readFileSync(dstPath) : null;
+  if (dst && sha(src) === sha(dst)) {
     console.log(`  ok    ${f}`);
     continue;
   }
   drifted++;
   if (check) {
-    console.log(`  DRIFT ${f}  docs=${sha(src)} public=${sha(dst)}`);
+    console.log(`  DRIFT ${f}  docs=${sha(src)} public=${dst ? sha(dst) : 'missing'}`);
   } else {
+    mkdirSync(dirname(dstPath), { recursive: true });
     writeFileSync(dstPath, src);
     console.log(`  sync  ${f}  → public/`);
   }
