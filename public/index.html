@@ -41,7 +41,24 @@
   <script>
     // Not on localhost — a caching worker fights `npm run dev`.
     if ('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
-      addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+      // Installed apps have no address bar to reload from, so the update has
+      // to drive itself: take the new worker as soon as it activates, and
+      // check for one whenever the app comes back to the foreground (Android
+      // resumes a PWA from memory — it may not navigate again for days).
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || reloading) return; // first install: nothing stale to replace
+        reloading = true;
+        location.reload();
+      });
+      addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').then((reg) => {
+          document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) reg.update().catch(() => {});
+          });
+        }).catch(() => {});
+      });
     }
   </script>
 </body>

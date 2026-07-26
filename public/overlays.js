@@ -129,6 +129,9 @@
         <label><input type="checkbox" data-l="wildlife"> 🦊 wildlife</label>
         <label><input type="checkbox" data-l="heritage"> 🏛 heritage</label>
         <label><input type="checkbox" data-l="plaques"> 🔵 blue plaques</label>
+        <div class="sec">app</div>
+        <button type="button" id="swUpdate">↻ force refresh</button>
+        <div id="swVer" class="src"></div>
       </div>
     </span>`);
   const menu = document.getElementById('layersMenu');
@@ -138,6 +141,35 @@
   document.addEventListener('pointerdown', (ev) => {
     if (!ev.target.closest('#layersWrap')) menu.hidden = true;
   }, true);
+
+  /* ============ UI: force refresh ============ */
+  // Installed, there is no address bar to reload from, and the shell is served
+  // stale-while-revalidate — so a plain reload still shows yesterday's code.
+  // Dropping the caches first is the only deterministic way to pull a build.
+  const swVerEl = document.getElementById('swVer');
+  const swBtn = document.getElementById('swUpdate');
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      if (ev.data?.swVersion) swVerEl.textContent = `build ${ev.data.swVersion}`;
+    });
+    // On a first visit overlays.js runs before the worker claims the page, so
+    // asking once is not enough — ask again once it is actually in control.
+    const askVersion = () => navigator.serviceWorker.controller?.postMessage('version');
+    askVersion();
+    navigator.serviceWorker.addEventListener('controllerchange', askVersion);
+    navigator.serviceWorker.ready.then(askVersion).catch(() => {});
+  } else {
+    swVerEl.textContent = 'not installed';
+  }
+  swBtn.addEventListener('click', async () => {
+    swBtn.disabled = true;
+    swBtn.textContent = '↻ refreshing…';
+    try {
+      await navigator.serviceWorker?.getRegistration().then((r) => r?.update());
+      await caches.keys().then((ks) => Promise.all(ks.map((k) => caches.delete(k))));
+    } catch { /* fall through to the reload regardless */ }
+    location.reload();
+  });
 
   /* ============ UI: default pin (🏠) ============ */
   document.getElementById('layersWrap').insertAdjacentHTML('afterend', `
