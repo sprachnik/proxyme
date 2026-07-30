@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SHARED = [
   'overlays.js', 'style.css',
-  'data/plaques.min.json', 'data/stations.min.json',
+  'data/plaques.min.json', 'data/stations.min.json', 'data/fires.min.json',
   'manifest.webmanifest', 'sw.js',
   'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png',

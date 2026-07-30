@@ -1,0 +1,29 @@
+# Refresh the FIRMS wildfire harvest (data/fires.min.json, both builds).
+# VIIRS only passes over the UK in two daily windows, so 6-hourly loses
+# almost nothing vs the satellites themselves. Commits only when the data
+# changed — a quiet fire day costs no Netlify rebuild.
+# NOTE: GitHub disables cron workflows after ~60 days without repo activity.
+name: harvest-fires
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/fetch-fires.mjs
+      - name: commit if changed
+        run: |
+          git add docs/data/fires.min.json public/data/fires.min.json
+          if git diff --cached --quiet; then
+            echo "no change"
+          else
+            git config user.name "fires-harvest[bot]"
+            git config user.email "actions@users.noreply.github.com"
+            git commit -m "data: refresh FIRMS wildfire harvest"
+            git push
+          fi

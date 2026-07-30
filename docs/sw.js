@@ -5,7 +5,7 @@
 // Bump VERSION whenever a shell file changes; old caches are dropped on
 // activate. Relative URLs resolve against this script, so the same file works
 // at the site root (Netlify) and under /proxyme/ (GitHub Pages).
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL = `proxme-shell-${VERSION}`;
 const RUNTIME = `proxme-runtime-${VERSION}`;
 
@@ -27,10 +27,12 @@ const VENDOR = [
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
 ];
 
-// Hosts whose responses must always come from the network.
+// Hosts whose responses must always come from the network. fires.min.json is
+// a CI-refreshed feed, not a static harvest — stale fire data misleads.
 const isLive = (url) =>
   url.pathname.startsWith('/api/') ||
   url.pathname.startsWith('/.netlify/') ||
+  url.pathname.endsWith('/data/fires.min.json') ||
   url.origin !== self.location.origin;
 
 self.addEventListener('install', (e) => {

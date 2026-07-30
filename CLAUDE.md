@@ -171,6 +171,7 @@ is why these live in the *shared* file and not in the two `app.js` copies:
 | UKPN live faults | opendatasoft `within_distance(geopoint, geom'POINT(lon lat)', Xkm)`; London/SE/East only |
 | carbonintensity.org.uk | postcode-district keyed → reverse geocode via postcodes.io **`/outcodes?radius=25000`** (plain `/postcodes` returns null near coasts/airfields) |
 | openplaques.org | API has **no CORS** — data is a CC0 harvest instead (see below) |
+| NASA FIRMS | keyed area API and keyless regional CSVs both have **no CORS** — wildfires are a cron harvest (see below); UK satellite passes cluster ~01:30–03:30 & ~11:45–13:30 UTC, so 6-hourly loses nothing |
 
 ## Static harvests (`docs/data/` + `public/data/` copies)
 
@@ -181,6 +182,13 @@ is why these live in the *shared* file and not in the two `app.js` copies:
   Source: dump links on https://openplaques.org/data
   (`open-plaques-United-Kingdom-<date>.json` on S3); filter to records with
   coordinates, minify. Popup links to `openplaques.org/plaques/{id}`.
+- `fires.min.json` — `[[lat, lon, frpMW, tsMinutes], …]`, last-24 h FIRMS
+  detections (3× VIIRS + MODIS, UK/Ireland box, low-confidence dropped).
+  Unlike the two above it is a **feed**: `scripts/fetch-fires.mjs` runs from
+  `.github/workflows/fires.yml` every 6 h and commits only on change (so a
+  quiet day costs no Netlify rebuild); `sw.js` serves it network-only. GitHub
+  pauses cron workflows after ~60 days of repo inactivity — re-enable from the
+  Actions tab if fires stop updating.
 
 ## localStorage keys
 

@@ -10,7 +10,8 @@
     "check": "node scripts/check.mjs && node scripts/sync.mjs --check",
     "deploy": "netlify deploy --build",
     "deploy:prod": "netlify deploy --build --prod",
-    "icons": "node scripts/make-icons.mjs && node scripts/sync.mjs"
+    "icons": "node scripts/make-icons.mjs && node scripts/sync.mjs",
+    "fires": "node scripts/fetch-fires.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^8.1.0",

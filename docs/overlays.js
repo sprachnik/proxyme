@@ -9,7 +9,8 @@
   const st = Object.assign(
     { sat: false, marine: false, air: false, sun: false, quake: false,
       gauges: false, carbon: false, infra: false, wiki: false, crime: false, food: false,
-      trains: false, wildlife: false, power: false, heritage: false, plaques: false },
+      trains: false, wildlife: false, power: false, heritage: false, plaques: false,
+      fire: false },
     JSON.parse(localStorage.getItem(OV_KEY) || '{}')
   );
   const save = () => localStorage.setItem(OV_KEY, JSON.stringify(st));
@@ -120,6 +121,7 @@
         <label><input type="checkbox" data-l="air"> 🌿 air, pollen &amp; UV</label>
         <label><input type="checkbox" data-l="carbon"> ⚡ grid electricity</label>
         <label><input type="checkbox" data-l="quake"> 🌍 earthquakes</label>
+        <label><input type="checkbox" data-l="fire"> 🔥 wildfires</label>
         <label><input type="checkbox" data-l="power"> 🔌 power cuts</label>
         <div class="sec">nearby</div>
         <label><input type="checkbox" data-l="infra"> 🏗 infrastructure</label>
@@ -279,7 +281,7 @@
     carbon: '⚡ grid electricity', infra: '🏗 infrastructure', wiki: '📖 wikipedia',
     crime: '🚨 street crime', food: '🍽 food hygiene', trains: '🚉 train departures',
     wildlife: '🦊 wildlife', power: '🔌 power cuts', heritage: '🏛 heritage',
-    plaques: '🔵 blue plaques',
+    plaques: '🔵 blue plaques', fire: '🔥 wildfires',
   };
   const cardId = (k) => `ovc-${k}`;
   const ownerOf = (id) => id.replace(/^ovc-/, '');
@@ -1382,6 +1384,80 @@
   function plaquesOn() { plaqueGroup = plaqueGroup || L.layerGroup().addTo(map); plaquesRefresh(); }
   function plaquesOff() { plaqueGroup?.clearLayers(); dropCard('ovc-plaques'); }
 
+  /* ============ 17. wildfires (NASA FIRMS harvest via GitHub Actions) ==== */
+  // data/fires.min.json = [[lat, lon, frpMW, tsMinutes], …], last 24 h of
+  // VIIRS+MODIS detections, refreshed 6-hourly by CI. Unlike the other
+  // data/ harvests it is a *feed* — sw.js serves it network-only.
+  let fireGroup = null, fireTimer = null;
+  const fireAgo = (min) => (min < 90 ? `${min}m` : `${Math.round(min / 60)}h`);
+  const brgTo = (a, b) => {
+    const dl = (b.lon - a.lon) * RAD;
+    return Math.atan2(Math.sin(dl) * Math.cos(b.lat * RAD),
+      Math.cos(a.lat * RAD) * Math.sin(b.lat * RAD) -
+      Math.sin(a.lat * RAD) * Math.cos(b.lat * RAD) * Math.cos(dl)) / RAD;
+  };
+
+  async function fireRefresh() {
+    if (!here || !fireGroup) return;
+    try {
+      const r = await fetch('data/fires.min.json', { cache: 'no-cache' });
+      if (!r.ok) {
+        if (st.fire) card('ovc-fire').innerHTML = '<h4>🔥 wildfires</h4><div>data unavailable — will retry</div>';
+        return;
+      }
+      const data = await r.json();
+      if (!st.fire) return; // drop stale responses after toggle-off
+      const netKm = Math.max(150, radiusKm); // fires are rare — cast a wider net
+      const nowMin = Math.floor(Date.now() / 60000);
+      const near = data
+        .map(([la, lo, frp, ts]) => ({ la, lo, frp, ts }))
+        .filter((f) => KM(here, { lat: f.la, lon: f.lo }) <= netKm);
+      // one fire = many 375 m satellite pixels — greedy-cluster within 2 km
+      const clusters = [];
+      for (const f of near.sort((a, b) => b.frp - a.frp)) {
+        const c = clusters.find((c0) => KM({ lat: c0.la, lon: c0.lo }, { lat: f.la, lon: f.lo }) < 2);
+        if (c) { c.pts.push(f); c.frp = Math.max(c.frp, f.frp); c.ts = Math.max(c.ts, f.ts); }
+        else clusters.push({ la: f.la, lo: f.lo, frp: f.frp, ts: f.ts, pts: [f] });
+      }
+      fireGroup.clearLayers();
+      for (const c of clusters) {
+        const lats = c.pts.map((p) => p.la), lons = c.pts.map((p) => p.lo);
+        const pad = 0.3 / 111, padLon = 0.3 / (111 * Math.cos(c.la * RAD));
+        const b = [[Math.min(...lats) - pad, Math.min(...lons) - padLon],
+          [Math.max(...lats) + pad, Math.max(...lons) + padLon]];
+        c.cla = (b[0][0] + b[1][0]) / 2; c.clo = (b[0][1] + b[1][1]) / 2;
+        c.d = KM(here, { lat: c.cla, lon: c.clo });
+        const popup =
+          `<b>🔥 active fire</b> <span class="sub">satellite detection</span><br>` +
+          `${c.pts.length} hotspot${c.pts.length > 1 ? 's' : ''} · peak ${Math.round(c.frp)} MW<br>` +
+          `last seen ${fireAgo(nowMin - c.ts)} ago · ${c.d.toFixed(1)} km away<br>` +
+          `<span class="links"><a href="https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${c.clo.toFixed(3)},${c.cla.toFixed(3)},11z" target="_blank" rel="noopener">FIRMS map</a></span>`;
+        L.rectangle(b, { color: '#ff5050', weight: 1.5, fillColor: '#ff3b30', fillOpacity: 0.25 })
+          .bindPopup(popup).addTo(fireGroup);
+        L.marker([c.cla, c.clo], { icon: poiIcon('🔥') }).bindPopup(popup).addTo(fireGroup);
+      }
+      // biggest first, not nearest — a 300 MW blaze 100 km out matters more
+      // than a 1 MW industrial flare next door; each row shows its distance
+      clusters.sort((a, b) => b.frp - a.frp);
+      card('ovc-fire').innerHTML =
+        `<h4>🔥 wildfires${clusters.length ? ` · ${clusters.length} within ${netKm} km` : ''}</h4>` +
+        (clusters.slice(0, 3).map((c) =>
+          `<div class="r${c.d <= radiusKm ? ' warn' : ''}"><span>${c.d.toFixed(0)} km ${compass(brgTo(here, { lat: c.cla, lon: c.clo }))}</span>` +
+          `<span>${Math.round(c.frp)} MW · ${fireAgo(nowMin - c.ts)} ago</span></div>`).join('') ||
+          `<div>none within ${netKm} km in the last 24 h</div>`) +
+        '<div class="r"><span class="src">NASA FIRMS · VIIRS + MODIS · 6-hourly</span></div>';
+    } catch {
+      if (st.fire) card('ovc-fire').innerHTML = '<h4>🔥 wildfires</h4><div>data unavailable — will retry</div>';
+    }
+  }
+  function fireOn() {
+    fireGroup = fireGroup || L.layerGroup().addTo(map);
+    fireRefresh();
+    clearInterval(fireTimer);
+    fireTimer = setInterval(fireRefresh, 30 * 60 * 1000);
+  }
+  function fireOff() { clearInterval(fireTimer); fireTimer = null; fireGroup?.clearLayers(); dropCard('ovc-fire'); }
+
   /* ============ toggle engine ============ */
   const LAYERS = {
     sat: [satOn, satOff], marine: [marineOn, marineOff], air: [airOn, airOff],
@@ -1391,7 +1467,7 @@
     crime: [crimeOn, crimeOff], food: [foodOn, foodOff],
     trains: [trainsOn, trainsOff], wildlife: [wildlifeOn, wildlifeOff],
     power: [powerOn, powerOff], heritage: [heritageOn, heritageOff],
-    plaques: [plaquesOn, plaquesOff],
+    plaques: [plaquesOn, plaquesOff], fire: [fireOn, fireOff],
   };
 
   const started = {};
@@ -1514,6 +1590,7 @@
       if (st.power) powerRefresh();
       if (st.heritage) heritageRefresh();
       if (st.plaques) plaquesRefresh();
+      if (st.fire) fireRefresh();
     }
   }, 3000);
 })();
