@@ -7,6 +7,7 @@
 import WebSocket from 'ws';
 import { getCache, setCache } from './_store.js';
 import { normalizeVessel } from './_normalize.js';
+import { badOrigin, forbidden } from './_origin.js';
 
 const DRAIN_MS = 6000;
 const RESPONSE_TTL_MS = 25000; // > frontend poll interval; AISStream allows 1 conn/key
@@ -20,6 +21,7 @@ const box = (lat, lon, km) => {
 };
 
 export default async (req) => {
+  if (badOrigin(req)) return forbidden();
   const u = new URL(req.url);
   const lat = parseFloat(u.searchParams.get('lat'));
   const lon = parseFloat(u.searchParams.get('lon'));

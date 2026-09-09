@@ -86,7 +86,8 @@ nearest-first list panel (tap to fly to the target).
   sync — see `CLAUDE.md`.
 - **Netlify functions** (`netlify/functions/`): `aircraft.js` (aggregator
   fallback chain), `gliders.js` (OGN), `vessels.js` (AISStream drain +
-  history), `_normalize.js`, `_store.js` (Netlify Blobs cache seam).
+  history), `_normalize.js`, `_store.js` (Netlify Blobs cache seam),
+  `_origin.js` (origin guard every function calls first).
 - **Normalised vehicle shape** everywhere:
   `{ id, kind: 'air'|'sea', sub, lat, lon, alt /* m */, ground, heading,
   speed /* kn */, name, reg, model, src, ts }`.
@@ -129,12 +130,32 @@ drift by copying the `docs/` copies over.
 
 ## Licensing / usage notes
 
+This project's own code is MIT — see `LICENSE`. That does **not** relicense
+the harvested datasets or the upstream feeds, which keep their own terms:
+
+- `data/stations.min.json` is **ODbL 1.0** (share-alike). Derived from
+  [davwheat/uk-railway-stations](https://github.com/davwheat/uk-railway-stations),
+  itself derived from Trainline EU's open dataset and their sources —
+  attribution is owed to all three, and any modified redistribution of the
+  data must be published under ODbL.
+- `data/plaques.min.json` is a CC0 harvest of openplaques.org.
 - adsb.lol is ODbL; adsb.fi & airplanes.live free for non-commercial use;
   OGN is non-commercial flight-following; AISStream free tier allows **one
   concurrent connection per key**.
-- OpenStreetMap data © OSM contributors (ODbL); openplaques.org data CC0;
-  police.uk / EA / FSA / planning.data / UKPN under the Open Government
-  Licence; iNaturalist observations carry per-record licences.
+- OpenStreetMap data © OSM contributors (ODbL); police.uk / EA / FSA /
+  planning.data / UKPN under the Open Government Licence; iNaturalist
+  observations carry per-record licences.
 - Huxley is a community proxy for National Rail Darwin — fine for a personal
   page, get a Rail Data Marketplace token before anything bigger.
-- All fine for an MVP; revisit before monetising.
+- All fine for a personal, non-commercial deployment; revisit every line of
+  this list before monetising.
+
+### Running your own copy
+
+The `/api/*` functions are unauthenticated. `_origin.js` rejects requests
+carrying a *foreign* browser `Origin` (allowlist from Netlify's injected
+`URL` / `DEPLOY_PRIME_URL`, plus optional `ALLOWED_ORIGINS`), which stops
+another site hotlinking them — it is not authentication, so deploy with your
+own `AISSTREAM_API_KEY` rather than pointing at someone else's instance. The
+free tier's one-connection-per-key limit means a shared endpoint locks its
+owner out of their own boats.

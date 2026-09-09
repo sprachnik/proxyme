@@ -6,8 +6,10 @@
 // overlap with the aircraft feed by ICAO hex.
 import { getCache, setCache } from './_store.js';
 import { normalizeOgn } from './_normalize.js';
+import { badOrigin, forbidden } from './_origin.js';
 
 export default async (req) => {
+  if (badOrigin(req)) return forbidden();
   const u = new URL(req.url);
   const lat = parseFloat(u.searchParams.get('lat'));
   const lon = parseFloat(u.searchParams.get('lon'));

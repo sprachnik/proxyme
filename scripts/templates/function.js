@@ -3,10 +3,12 @@
 // TODO: describe the upstream source and any quirks worth remembering, then
 // add a row to the source table in CLAUDE.md.
 import { getCache, setCache } from './_store.js';
+import { badOrigin, forbidden } from './_origin.js';
 
 const TTL_MS = 8000; // protects the upstream quota; raise for slow-moving data
 
 export default async (req) => {
+  if (badOrigin(req)) return forbidden();
   const u = new URL(req.url);
   const lat = parseFloat(u.searchParams.get('lat'));
   const lon = parseFloat(u.searchParams.get('lon'));

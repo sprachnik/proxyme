@@ -2,6 +2,7 @@
   "name": "proxme",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "netlify dev",
     "dev:pages": "node scripts/serve-docs.mjs",

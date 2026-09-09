@@ -5,6 +5,7 @@
 // unlike OpenSky, which now needs OAuth and misses most GA traffic.
 import { getCache, setCache } from './_store.js';
 import { normalizeAdsb } from './_normalize.js';
+import { badOrigin, forbidden } from './_origin.js';
 
 const SOURCES = [
   { name: 'adsb.lol',       url: (la, lo, nm) => `https://api.adsb.lol/v2/point/${la}/${lo}/${nm}`,               list: (d) => d.ac },
@@ -13,6 +14,7 @@ const SOURCES = [
 ];
 
 export default async (req) => {
+  if (badOrigin(req)) return forbidden();
   const u = new URL(req.url);
   const lat = parseFloat(u.searchParams.get('lat'));
   const lon = parseFloat(u.searchParams.get('lon'));

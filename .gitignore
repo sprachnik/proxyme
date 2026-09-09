@@ -6,6 +6,9 @@ node_modules/
 *.log
 deno.lock
 
+# Deployment identities (site ids, remotes, accounts) — the repo is public.
+LOCAL.md
+
 # Editor / OS
 .DS_Store
 .idea/

@@ -18,15 +18,15 @@ map. Two deployments, one codebase, no build step, no framework.
 
 ## Deployment / git
 
-- Repo: `sprachnik/proxyme` (private), default branch `main`. `upstream`
-  remote points at the original `sprachnik/proxyme`.
-- The `origin` URL carries the `sprachnik@` username and the repo sets
-  `credential.helper=!gh auth git-credential` locally — the machine's default
-  Git Credential Manager account is `sprachnik`, which cannot see this repo.
-- Netlify: `nimble-pothos-0ff3c0.netlify.app`
-  (team `jamesasmoores13`, project id `9e547557-454a-44e0-8621-55ad3bd8c766`).
-- Owner tests on a phone at the Kent coast — mobile is first-class, verify
-  layouts at ≤640 px.
+- Default branch `main`; both builds ship from it. GitHub Pages serves
+  `docs/`, Netlify serves `public/` + `netlify/functions/`.
+- **This repo is public — keep deployment identities out of it.** Remote URLs,
+  Netlify team/site/project ids, credential-helper setup and anything else
+  naming a real account live in `LOCAL.md` (gitignored). Code must read such
+  values from the environment, never hardcode them: `_origin.js` takes its
+  allowlist from Netlify's injected `URL`/`DEPLOY_PRIME_URL` for this reason.
+- Mobile is first-class — the owner tests on a phone, so verify layouts at
+  ≤640 px before calling anything done.
 
 ## Local development
 
@@ -45,6 +45,11 @@ map. Two deployments, one codebase, no build step, no framework.
   `AISSTREAM_API_KEY` exists; without it `/api/vessels` returns 501 and
   everything else works. One concurrent connection per key, so a local
   `netlify dev` and the deployed site will fight over the same key.
+- Every function guards with `badOrigin(req)` from `_origin.js` before doing
+  any work — the endpoints are unauthenticated and `/api/vessels` spends the
+  site's one AISStream connection. A *foreign* browser Origin gets 403; an
+  absent one (same-origin fetch, `netlify dev`, curl) passes, so it stops
+  hotlinking rather than authenticating. The scaffold template includes it.
 - Functions whose filename starts with `_` are helpers by convention, but
   Netlify still bundles and exposes them (`/.netlify/functions/_store` → 502,
   not 404). Never put anything sensitive there. The new-function template
@@ -175,7 +180,9 @@ is why these live in the *shared* file and not in the two `app.js` copies:
 
 ## Static harvests (`docs/data/` + `public/data/` copies)
 
-- `stations.min.json` — `[[crs, name, lat, lon], …]`, 2,606 stations. Source:
+- `stations.min.json` — `[[crs, name, lat, lon], …]`, 2,606 stations. **ODbL
+  1.0**: share-alike, and attribution is owed to davwheat, Trainline EU and
+  their sources — keep the README credit intact if you touch this file. Source:
   `https://raw.githubusercontent.com/davwheat/uk-railway-stations/main/stations.json`
   (fields `stationName/lat/long/crsCode`), rounded to 5 dp.
 - `plaques.min.json` — `[[id, lat, lon, text≤90ch], …]`, 17,332 plaques.
@@ -200,16 +207,19 @@ cache), `her:*` (heritage cache).
 
 - E2E via Playwright scripts (session scratchpad, not committed): serve
   `docs/` with a tiny node http server, Chromium at
-  `/opt/pw-browsers/chromium-*/chrome-linux/chrome`, fake geolocation
-  (Manston 51.342,1.346 / Ramsgate 51.352,1.42), pre-seed localStorage
-  toggles via `addInitScript`, assert card text / marker counts / zero
-  `pageerror`s.
+  `/opt/pw-browsers/chromium-*/chrome-linux/chrome`, fake geolocation, pre-seed
+  localStorage toggles via `addInitScript`, assert card text / marker counts /
+  zero `pageerror`s.
+- Test fixtures are an airfield + a harbour, so light aircraft and tides/AIS
+  both have something to show: Shoreham 50.835,-0.297 and Brighton Marina
+  50.812,-0.101. Both sit in England & Wales (police.uk) and the UKPN region,
+  which several cards need. Use published landmarks — never the owner's home.
 - **Sandbox quirks** (not app bugs): the browser has no direct egress —
   `page.route` + node `fetch` tunnels requests, and node needs
   `undici` `EnvHttpProxyAgent` + `NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt`
   for some hosts (police.uk, celestrak). OSM tiles 403/503 through the
   tunnel. `route.fulfill` bypasses browser CORS — so **verify CORS with
-  `curl -H "Origin: https://sprachnik.github.io"`**, never with Playwright.
+  `curl -H "Origin: https://<user>.github.io"`**, never with Playwright.
 - `node --check <file>` every touched JS file before committing.
 
 ## Style
